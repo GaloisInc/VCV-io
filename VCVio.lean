@@ -56,6 +56,8 @@ import VCVio.CryptoFoundations.SigmaProtocol
 import VCVio.CryptoFoundations.SignatureAlg
 import VCVio.CryptoFoundations.SymmEncAlg
 import VCVio.CryptoFoundations.UAKE.MessageTransmissionProtocol.Defs
+import VCVio.CryptoFoundations.UAKE.MessageTransmissionProtocol.OfAsymmEncAlg
+import VCVio.CryptoFoundations.UAKE.MessageTransmissionProtocol.OfSignatureAlg
 import VCVio.EvalDist.BitVec
 import VCVio.EvalDist.Bool
 import VCVio.EvalDist.Defs.AlternativeMonad
