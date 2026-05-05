@@ -36,8 +36,7 @@ hash-and-sign schemes bind `σ` to `pk`). The receiver's key is `pk` alone. -/
 def ofSignatureAlg {m : Type → Type} [Monad m] {M PK SK S : Type}
     (sigAlg : SignatureAlg m M PK SK S) :
     MessageTransmissionProtocol m M (PK × SK) PK where
-  spec := .node (M × S) (fun _ => .done)
-  roles := ⟨.sender, fun _ => ⟨⟩⟩
+  steps := [⟨M × S, .sender⟩]
   setup := (fun keys => (keys, keys.1)) <$> sigAlg.keygen
   sender keys msg := do
     let σ ← sigAlg.sign keys.1 keys.2 msg
@@ -60,7 +59,10 @@ theorem CorrectExp_ofSignatureAlg
   unfold MessageTransmissionProtocol.CorrectExp
     MessageTransmissionProtocol.execOutput
     MessageTransmissionProtocol.exec
-  simp only [ofSignatureAlg, Strategy.runWithRoles_sender, Strategy.runWithRoles_done,
+  simp only [ofSignatureAlg, MessageTransmissionProtocol.spec,
+    MessageTransmissionProtocol.roles,
+    LinearStep.linearSpec, LinearStep.linearRoles,
+    Strategy.runWithRoles_sender, Strategy.runWithRoles_done,
     Function.comp_apply, monad_norm]
   congr 1
   funext keys

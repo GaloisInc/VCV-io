@@ -12,17 +12,29 @@ import VCVio.EvalDist.Defs.Instances
 
 A two-party interactive protocol in which a sender `S` transmits a message
 `m ∈ M` to a receiver `R`, formalized in the style of Dodis and Fiore (Sec. 2.1
-of *Unilaterally-Authenticated Key Exchange*). The interaction shape and role
-assignment are encoded directly with the existing two-party machinery
-(`Spec.Strategy.withRoles` / `Spec.Counterpart`), so an honest run of the
-protocol is just `Spec.Strategy.runWithRoles` and produces a transcript along
-with the receiver's output.
+of *Unilaterally-Authenticated Key Exchange*).
+
+The protocol shape is described by a list of `LinearStep`s, each pairing a
+move type with the role of the speaker for that move. Each step has a
+statically-known move type that does not depend on prior moves; this
+non-dependent ("linear") shape is what every concrete protocol of interest
+in the Dodis–Fiore framework actually uses, and it keeps the per-round move
+types statically typed (necessary for stating the iCCA / iCMA security games
+without universe-inflating heterogeneous-move tricks).
+
+The sender / receiver fields of `MessageTransmissionProtocol` are role-
+decorated strategies over the linearized `Spec.{0}` derived from the steps,
+so an honest run is just `Spec.Strategy.runWithRoles`.
 
 This module defines:
 
+* `LinearStep` — one round, paired move type and speaker.
+* `LinearStep.linearSpec` / `linearRoles` — derive the underlying `Spec.{0}`
+  and `RoleDecoration` from a step list.
 * `MessageTransmissionProtocol m M SendK RecvK` — the structural notion
-  `(Setup, S, R)`. The sender carries no terminal output, so its strategy
-  output type is `Unit`; the receiver's output is `Option M` (`none` ≡ ⊥).
+  `(Setup, S, R)`, parameterized by `steps : List LinearStep`.
+* `MessageTransmissionProtocol.spec` / `.roles` — convenience accessors that
+  compute the spec / role decoration from the step list.
 * `exec` / `execOutput` — running the honest sender against the honest
   receiver, producing the transcript-plus-output pair (or just the output).
   This is the formal counterpart of the paper's `⟨S(sendk, m), R(recvk)⟩ = m'`
@@ -39,29 +51,70 @@ namespace Interaction
 
 open Spec
 
+/-- One round of a (linear) message transmission protocol: a move type plus
+the role of the party who speaks. The non-dependent shape (move types fixed
+in advance, not chosen as a function of prior moves) is what all concrete
+protocols of interest in this framework use. -/
+structure LinearStep : Type 1 where
+  moveType : Type 0
+  speaker : Role
+
+namespace LinearStep
+
+/-- The linearized `Spec.{0}` from a list of steps: each step contributes one
+non-branching node whose move type is the step's `moveType`. -/
+def linearSpec : List LinearStep → Spec.{0}
+  | [] => .done
+  | step :: rest => .node step.moveType (fun _ => linearSpec rest)
+
+/-- The role decoration that pairs with `linearSpec`: each round's role is
+the corresponding `step.speaker`. -/
+def linearRoles : (steps : List LinearStep) → RoleDecoration (linearSpec steps)
+  | [] => ⟨⟩
+  | step :: rest => ⟨step.speaker, fun _ => linearRoles rest⟩
+
+end LinearStep
+
 /-- A message transmission protocol in the sense of Dodis–Fiore (Sec. 2.1):
 a possibly-interactive two-party protocol with sender keys in `SendK`,
 receiver keys in `RecvK`, and message space `M`.
 
-* `spec` is the interaction shape (sequence of move spaces).
-* `roles` assigns each move to the sender or the receiver.
+* `steps` describes the per-round move types and speakers.
 * `setup` produces a fresh `(sendk, recvk)` pair.
 * `sender sendk msg` is the honest sender's role-decorated strategy on
   message `msg`; the sender has no terminal output (`Unit`).
 * `receiver recvk` is the honest receiver's counterpart strategy; its output
-  is `some msg` on accept, `none` on reject. -/
+  is `some msg` on accept, `none` on reject.
+
+WLOG the sender speaks last (Dodis–Fiore convention). This is not enforced
+in the structure itself; concrete protocols should pick a step list whose
+last entry has `.sender`. -/
 @[ext]
 structure MessageTransmissionProtocol
-    (m : Type → Type) [Monad m] (M SendK RecvK : Type) where
-  spec : Spec.{0}
-  roles : RoleDecoration spec
+    (m : Type → Type) [Monad m] (M SendK RecvK : Type) : Type 1 where
+  steps : List LinearStep
   setup : m (SendK × RecvK)
-  sender : SendK → M → Strategy.withRoles m spec roles (fun _ => Unit)
-  receiver : RecvK → Counterpart m spec roles (fun _ => Option M)
+  sender : SendK → M →
+    Strategy.withRoles m (LinearStep.linearSpec steps)
+      (LinearStep.linearRoles steps) (fun _ => Unit)
+  receiver : RecvK →
+    Counterpart m (LinearStep.linearSpec steps)
+      (LinearStep.linearRoles steps) (fun _ => Option M)
 
 namespace MessageTransmissionProtocol
 
 variable {m : Type → Type} [Monad m] {M SendK RecvK : Type}
+
+/-! ## Spec / role accessors -/
+
+/-- The interaction `Spec` derived from the protocol's step list. -/
+abbrev spec (mtp : MessageTransmissionProtocol m M SendK RecvK) : Spec.{0} :=
+  LinearStep.linearSpec mtp.steps
+
+/-- The role decoration derived from the protocol's step list. -/
+abbrev roles (mtp : MessageTransmissionProtocol m M SendK RecvK) :
+    RoleDecoration mtp.spec :=
+  LinearStep.linearRoles mtp.steps
 
 /-! ## Honest execution -/
 

@@ -31,8 +31,7 @@ party that speaks). -/
 def ofAsymmEncAlg {m : Type → Type} [Monad m] {M PK SK C : Type}
     (encAlg : AsymmEncAlg m M PK SK C) :
     MessageTransmissionProtocol m M PK SK where
-  spec := .node C (fun _ => .done)
-  roles := ⟨.sender, fun _ => ⟨⟩⟩
+  steps := [⟨C, .sender⟩]
   setup := encAlg.keygen
   sender pk msg := do
     let c ← encAlg.encrypt pk msg
@@ -50,7 +49,10 @@ theorem CorrectExp_ofAsymmEncAlg (encAlg : AsymmEncAlg m M PK SK C) (msg : M) :
     MessageTransmissionProtocol.execOutput
     MessageTransmissionProtocol.exec
     AsymmEncAlg.CorrectExp
-  simp only [ofAsymmEncAlg, Strategy.runWithRoles_sender, Strategy.runWithRoles_done,
+  simp only [ofAsymmEncAlg, MessageTransmissionProtocol.spec,
+    MessageTransmissionProtocol.roles,
+    LinearStep.linearSpec, LinearStep.linearRoles,
+    Strategy.runWithRoles_sender, Strategy.runWithRoles_done,
     Function.comp_apply, monad_norm]
   rfl
 
