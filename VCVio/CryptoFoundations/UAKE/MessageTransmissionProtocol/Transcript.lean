@@ -6,10 +6,10 @@ Authors: Ben Hamlin
 import VCVio.Interaction.TwoParty.Decoration
 
 /-!
-# Timestamped Transcripts and Matching
+# Timestamped Transcripts, Matching, and Ping-Pong Adversaries
 
-Definitions 2 and 3 of Dodis–Fiore (Sec. 2.1, "Unilaterally-Authenticated Key
-Exchange").
+Definitions 2, 3, and 4 of Dodis–Fiore (Sec. 2.1, "Unilaterally-Authenticated
+Key Exchange").
 
 * `Spec.TimestampedTranscript spec` — a `Spec.Transcript`-shaped path with a
   `ℕ` timestamp on each move (Definition 2). The paper's "global counter"
@@ -22,9 +22,11 @@ Exchange").
   relation is asymmetric. With `Monotone` on each operand it is equivalent to
   the paper's full chain `t_1 < t'_1 < t'_2 < t_2 < …` (or its dual when `S`
   speaks first), by transitivity.
+* `Spec.TimestampedTranscript.IsPingPong` — Definition 4, asserting that at
+  least one of the adversary's oracle session transcripts matches the
+  challenge transcript.
 
-Ping-pong adversaries (Definition 4) and iCCA / iCMA security (Definitions 5
-& 6) are deferred to sibling files.
+iCCA / iCMA security (Definitions 5 & 6) are deferred to sibling files.
 -/
 
 universe u
@@ -85,5 +87,19 @@ def Spec.TimestampedTranscript.Matches :
   | .node _ _, ⟨.receiver, rRest⟩, ⟨x₁, t₁, ts₁⟩, ⟨x₂, t₂, ts₂⟩ =>
       ∃ h : x₂ = x₁, t₁ < t₂ ∧
         Spec.TimestampedTranscript.Matches (rRest x₁) ts₁ (h ▸ ts₂)
+
+/-- Definition 4 (Ping-pong Adversary) of Dodis–Fiore (Sec. 2.1):
+the adversary is "ping-pong" iff at least one of its oracle session
+transcripts matches the challenge transcript.
+
+Following the paper's convention `T ⊆ T*` (Definition 3, the matching
+relation), the oracle transcript is the first argument of `Matches` and the
+challenge is the second. -/
+def Spec.TimestampedTranscript.IsPingPong {spec : Spec.{u}}
+    (roles : RoleDecoration spec)
+    (challenge : Spec.TimestampedTranscript spec)
+    (oracleTranscripts : List (Spec.TimestampedTranscript spec)) : Prop :=
+  ∃ T ∈ oracleTranscripts,
+    Spec.TimestampedTranscript.Matches roles T challenge
 
 end Interaction
