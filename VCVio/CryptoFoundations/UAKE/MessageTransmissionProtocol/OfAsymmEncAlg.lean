@@ -46,15 +46,8 @@ underlying `AsymmEncAlg.CorrectExp`. -/
 theorem CorrectExp_ofAsymmEncAlg (encAlg : AsymmEncAlg m M PK SK C) (msg : M) :
     (ofAsymmEncAlg encAlg).CorrectExp msg = encAlg.CorrectExp msg := by
   unfold MessageTransmissionProtocol.CorrectExp
-    MessageTransmissionProtocol.execOutput
-    MessageTransmissionProtocol.exec
     AsymmEncAlg.CorrectExp
-  simp only [ofAsymmEncAlg, MessageTransmissionProtocol.spec,
-    MessageTransmissionProtocol.roles,
-    LinearStep.linearSpec, LinearStep.linearRoles,
-    Strategy.runWithRoles_sender, Strategy.runWithRoles_done,
-    Function.comp_apply, monad_norm]
-  rfl
+  simp only [ofAsymmEncAlg, exec, SenderProgram, ReceiverProgram, monad_norm]
 
 /-- Perfect correctness of `AsymmEncAlg` lifts to perfect correctness of the
 wrapped 1-round message transmission protocol. -/

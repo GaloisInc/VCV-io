@@ -57,21 +57,11 @@ theorem CorrectExp_ofSignatureAlg
       let σ ← sigAlg.sign keys.1 keys.2 msg
       sigAlg.verify keys.1 msg σ) := by
   unfold MessageTransmissionProtocol.CorrectExp
-    MessageTransmissionProtocol.execOutput
-    MessageTransmissionProtocol.exec
-  simp only [ofSignatureAlg, MessageTransmissionProtocol.spec,
-    MessageTransmissionProtocol.roles,
-    LinearStep.linearSpec, LinearStep.linearRoles,
-    Strategy.runWithRoles_sender, Strategy.runWithRoles_done,
-    Function.comp_apply, monad_norm]
-  congr 1
-  funext keys
-  congr 1
-  funext σ
-  conv_rhs => rw [← bind_pure (sigAlg.verify keys.1 msg σ)]
-  congr 1
-  funext v
-  cases v <;> simp
+  simp only [ofSignatureAlg, exec, SenderProgram, ReceiverProgram, monad_norm,
+    Function.comp_apply, pure_bind]
+  have h : ∀ v : Bool, decide ((if v then some msg else none) = some msg) = v := by
+    intro v; cases v <;> simp
+  simp only [h, bind_pure]
 
 /-- Perfect completeness of `SignatureAlg` lifts to perfect correctness of the
 wrapped 1-round message transmission protocol. -/
