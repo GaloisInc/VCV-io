@@ -22,6 +22,7 @@ import Examples.OneTimePad.HeapBasic
 import Examples.OneTimePad.HeapPar
 import Examples.OneTimePad.LeakageFree
 import Examples.OneTimePad.UC
+import Examples.PQXDH.Basic
 import Examples.PRFTagReader
 import Examples.PRGfromPRF
 import Examples.Pedersen
