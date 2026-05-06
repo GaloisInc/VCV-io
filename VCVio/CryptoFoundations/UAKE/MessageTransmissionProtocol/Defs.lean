@@ -107,6 +107,41 @@ def ReceiverProgram (m : Type → Type) (Y : Type) : List LinearStep → Type
       | .sender => step.moveType → m (ReceiverProgram m Y rest)
       | .receiver => m (step.moveType × ReceiverProgram m Y rest)
 
+/-! ### Speaker-specialized unfoldings
+
+When advancing a `SenderProgram` / `ReceiverProgram` one step, callers
+match on `step.speaker` to know which branch of the type to use. These
+equational lemmas spell out the resulting type so that `▸` (or `simp`) can
+convert a program at the abstract `step :: rest` shape into a program at
+the speaker-specific shape, without having to unfold the recursive type
+definition by hand. -/
+
+/-- At a sender step, `SenderProgram` is the producer side: an `m`-action
+yielding the move and the continuation. -/
+theorem SenderProgram_cons_sender {m : Type → Type} {X : Type}
+    {step : LinearStep} {rest : List LinearStep} (h : step.speaker = .sender) :
+    SenderProgram m X (step :: rest) = m (step.moveType × SenderProgram m X rest) := by
+  simp [SenderProgram, h]
+
+/-- At a receiver step, `SenderProgram` is the consumer side: a function
+taking the receiver's move to the continuation. -/
+theorem SenderProgram_cons_receiver {m : Type → Type} {X : Type}
+    {step : LinearStep} {rest : List LinearStep} (h : step.speaker = .receiver) :
+    SenderProgram m X (step :: rest) = (step.moveType → m (SenderProgram m X rest)) := by
+  simp [SenderProgram, h]
+
+/-- At a sender step, `ReceiverProgram` is the consumer side. -/
+theorem ReceiverProgram_cons_sender {m : Type → Type} {Y : Type}
+    {step : LinearStep} {rest : List LinearStep} (h : step.speaker = .sender) :
+    ReceiverProgram m Y (step :: rest) = (step.moveType → m (ReceiverProgram m Y rest)) := by
+  simp [ReceiverProgram, h]
+
+/-- At a receiver step, `ReceiverProgram` is the producer side. -/
+theorem ReceiverProgram_cons_receiver {m : Type → Type} {Y : Type}
+    {step : LinearStep} {rest : List LinearStep} (h : step.speaker = .receiver) :
+    ReceiverProgram m Y (step :: rest) = m (step.moveType × ReceiverProgram m Y rest) := by
+  simp [ReceiverProgram, h]
+
 /-- A message transmission protocol in the sense of Dodis–Fiore (Sec. 2.1):
 a possibly-interactive two-party protocol with sender keys in `SendK`,
 receiver keys in `RecvK`, and message space `M`.
