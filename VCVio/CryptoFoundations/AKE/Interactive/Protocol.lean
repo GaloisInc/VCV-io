@@ -111,6 +111,36 @@ def ofRounds (Ms : List Type)
 
 end MsgTransmissionProtocol
 
+structure TimestampedTranscript (Ms : List Type) where
+  messages : Spec.Transcript (Spec.ofList Ms)
+  timestamps : List ℕ
+  length_eq : timestamps.length = Ms.length
+
+instance : DecidableEq (Spec.Transcript (Spec.ofList ([] : List Type))) :=
+  inferInstanceAs (DecidableEq PUnit)
+
+instance {T : Type} {tl : List Type} [DecidableEq T]
+    [DecidableEq (Spec.Transcript (Spec.ofList tl))] :
+    DecidableEq (Spec.Transcript (Spec.ofList (T :: tl))) :=
+  inferInstanceAs (DecidableEq ((_ : T) × Spec.Transcript (Spec.ofList tl)))
+
+namespace TimestampedTranscript
+
+private def interleave : Bool → List (ℕ × ℕ) → List ℕ
+  | _, [] => []
+  | ab, (a, b) :: rest => (if ab then [a, b] else [b, a]) ++ interleave (!ab) rest
+
+def Matching {Ms : List Type} (T Tstar : TimestampedTranscript Ms) : Prop :=
+  T.messages = Tstar.messages ∧
+    List.IsChain (· < ·) (interleave (Ms.length % 2 == 0) (T.timestamps.zip Tstar.timestamps))
+
+instance {Ms : List Type} [DecidableEq (Spec.Transcript (Spec.ofList Ms))]
+    (T Tstar : TimestampedTranscript Ms) : Decidable (Matching T Tstar) := by
+  unfold Matching
+  infer_instance
+
+end TimestampedTranscript
+
 /-! ## Single-round protocols from non-interactive encryption
 
 A non-interactive asymmetric encryption scheme is the degenerate one-round
