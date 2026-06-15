@@ -1,5 +1,4 @@
 import VCVio.CryptoFoundations.AKE.Interactive.Protocol
-import VCVio.CryptoFoundations.AKE.UAKE.Defs
 import VCVio.CryptoFoundations.AsymmEncAlg.Defs
 import VCVio.CryptoFoundations.AsymmEncAlg.INDCCA
 import VCVio.CryptoFoundations.AsymmEncAlg.INDCPA
