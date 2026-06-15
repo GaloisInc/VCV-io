@@ -136,12 +136,18 @@ private def interleave : Bool → List (ℕ × ℕ) → List ℕ
   | _, [] => []
   | ab, (a, b) :: rest => (if ab then [a, b] else [b, a]) ++ interleave (!ab) rest
 
-def Matching {Ms : List Type} (T Tstar : TimestampedTranscript Ms) : Prop :=
+private def oracleLeads : Role → ℕ → Bool
+  | .sender, n => n % 2 == 0
+  | .receiver, n => n % 2 == 1
+
+def Matching {Ms : List Type} (challenger : Role) (T Tstar : TimestampedTranscript Ms) : Prop :=
   T.messages = Tstar.messages ∧
-    List.IsChain (· < ·) (interleave (Ms.length % 2 == 0) (T.timestamps.zip Tstar.timestamps))
+    List.IsChain (· < ·)
+      (interleave (oracleLeads challenger Ms.length) (T.timestamps.zip Tstar.timestamps))
 
 instance {Ms : List Type} [DecidableEq (Spec.Transcript (Spec.ofList Ms))]
-    (T Tstar : TimestampedTranscript Ms) : Decidable (Matching T Tstar) := by
+    (challenger : Role) (T Tstar : TimestampedTranscript Ms) :
+    Decidable (Matching challenger T Tstar) := by
   unfold Matching
   infer_instance
 
