@@ -35,7 +35,7 @@ def toracleImpl [SampleableType K] {proto : MsgTransmissionProtocol ProbComp K T
   set (⟨env.clock + proto.Ms.length, env.sessions ++ [session]⟩ : Env proto)
   pure (session, some key)
 
-def fullImpl [SampleableType K] {proto : MsgTransmissionProtocol ProbComp K TK UK} (tk : TK) :
+def oracleImpl [SampleableType K] {proto : MsgTransmissionProtocol ProbComp K TK UK} (tk : TK) :
     QueryImpl (unifSpec + Toracle proto) (StateT (Env proto) ProbComp) :=
   (HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget (StateT (Env proto) ProbComp)
     + toracleImpl (proto := proto) tk
@@ -65,7 +65,7 @@ def isFullPingPong (cr : ChallengeResult proto) :
 
 def challengeSession [SampleableType K] (A : Adversary proto) (uk : UK) (tk : TK) :
     ProbComp (ChallengeResult proto × (A.State × Env proto × TK)) := do
-  let ((focalStrat, st), env) ← (simulateQ (fullImpl tk) (A.challenge uk)).run ⟨0, []⟩
+  let ((focalStrat, st), env) ← (simulateQ (oracleImpl tk) (A.challenge uk)).run ⟨0, []⟩
   let ⟨tr, _, K0⟩ ← Interaction.TwoParty.run proto.spec proto.owner focalStrat (proto.receiver uk)
   let ts := (List.range proto.Ms.length).map (· + env.clock)
   let challengeTr : TimestampedTranscript proto.Ms :=
@@ -77,7 +77,7 @@ def finalize [SampleableType K] (A : Adversary proto) (st : A.State × Env proto
     (cr : ChallengeResult proto) (b : Bool) (K1 : Option K) : ProbComp Bool := do
   let (aSt, env, tk) := st
   let Kb := if b then K1 else cr.K0
-  let ((b', revealed), _) ← (simulateQ (fullImpl tk) (A.post aSt Kb)).run env
+  let ((b', revealed), _) ← (simulateQ (oracleImpl tk) (A.post aSt Kb)).run env
   if isFullPingPong cr revealed then $ᵗ Bool else pure (b' == b)
 
 def Exp [SampleableType K] (A : Adversary proto) : ProbComp Bool := do
