@@ -17,6 +17,14 @@ structure Scheme (K UK TK W : Type) where
   U : Party UK W (Option K)
   T : Party TK W (Option K)
 
+def CorrectExp [DecidableEq K] (proto : Scheme K UK TK W) : ProbComp Bool := do
+  let (uk, tk) ← proto.setup
+  let (uOut, tOut) ← runHonest proto.U proto.T uk tk (proto.rounds + 1)
+  return decide (uOut.join = none ∨ tOut.join = none ∨ uOut.join = tOut.join)
+
+def PerfectlyCorrect [DecidableEq K] (proto : Scheme K UK TK W) : Prop :=
+  Pr[= true | CorrectExp proto] = 1
+
 structure TSession (proto : Scheme K UK TK W) where
   state : proto.T.State
   transcript : Transcript W
@@ -63,9 +71,9 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
           let (st', res) ← (proto.T.step t.state w : ProbComp _)
           let (tr1, c1) := recordOne t.transcript w env.clock
           match res with
-          | .inl w' =>
+          | .inl (w', oOut) =>
               let (tr2, c2) := recordOne tr1 w' c1
-              let t' : TSession proto := ⟨st', tr2, none, t.revealed⟩
+              let t' : TSession proto := ⟨st', tr2, oOut, t.revealed⟩
               set { env with clock := c2, tSessions := env.tSessions.set sid t' }
               pure (.inl w')
           | .inr kT =>
@@ -87,7 +95,7 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
           let (st', res) ← (proto.U.step env.challenge.state w : ProbComp _)
           let (tr1, c1) := recordOne env.challenge.transcript w env.clock
           match res with
-          | .inl w' =>
+          | .inl (w', _) =>
               let (tr2, c2) := recordOne tr1 w' c1
               set { env with clock := c2, challenge := ⟨st', tr2⟩ }
               pure (.inl w')

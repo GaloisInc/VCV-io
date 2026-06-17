@@ -3,7 +3,8 @@ import VCVio.CryptoFoundations.AKE.ICCA.Basic
 import VCVio.CryptoFoundations.AKE.ICCA.OfAsymmEncAlg
 import VCVio.CryptoFoundations.AKE.Interactive.Protocol
 import VCVio.CryptoFoundations.AKE.Stepped.Basic
-import VCVio.CryptoFoundations.AKE.Stepped.ICCA
+import VCVio.CryptoFoundations.AKE.Stepped.ICCA.Basic
+import VCVio.CryptoFoundations.AKE.Stepped.ICCA.OfAsymmEncAlg
 import VCVio.CryptoFoundations.AKE.Stepped.ICMA
 import VCVio.CryptoFoundations.AKE.Stepped.UAKE
 import VCVio.CryptoFoundations.AKE.UAKE

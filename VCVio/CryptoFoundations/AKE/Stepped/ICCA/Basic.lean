@@ -45,7 +45,7 @@ def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (recvk : RecvK) :
         let (st', res) ← (proto.receiver.step r.state w : ProbComp _)
         let (tr1, c1) := recordOne r.transcript w env.clock
         match res with
-        | .inl w' =>
+        | .inl (w', _) =>
             let (tr2, c2) := recordOne tr1 w' c1
             set { env with clock := c2, receivers := env.receivers.set sid ⟨st', tr2⟩ }
             pure (.inl w')
@@ -60,7 +60,7 @@ def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (recvk : RecvK) :
         let (st', res) ← (proto.sender.step c.state w : ProbComp _)
         let (tr1, c1) := recordOne c.transcript w env.clock
         match res with
-        | .inl w' =>
+        | .inl (w', _) =>
             let (tr2, c2) := recordOne tr1 w' c1
             set { env with clock := c2, challenge := some ⟨st', tr2⟩ }
             pure (.inl w')
