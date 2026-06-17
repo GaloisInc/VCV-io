@@ -1,9 +1,9 @@
 /-
-Copyright (c) 2026 Ben Hamlin. All rights reserved.
+Copyright (c) 2026 Galois Inc. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Ben Hamlin
 -/
-import VCVio.CryptoFoundations.AKE.ICCA.Basic
+import PQXDH.AKE.ICCA.Basic
 import VCVio.CryptoFoundations.AsymmEncAlg.INDCCA
 
 open OracleSpec OracleComp

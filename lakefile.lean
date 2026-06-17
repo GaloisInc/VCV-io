@@ -70,6 +70,10 @@ require PolyFun from git
 /-- Main library. -/
 @[default_target] lean_lib VCVio
 
+/-- PQXDH protocol formalization: interactive message-transmission games (iCCA, iCMA)
+and unilaterally-authenticated key exchange (UAKE), built on `VCVio`. -/
+lean_lib PQXDH
+
 /-- Shared FFI bindings (SHA-3 / FIPS 202, etc.). -/
 lean_lib FFI
 
