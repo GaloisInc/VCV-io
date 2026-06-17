@@ -13,9 +13,9 @@ variable {Msg SendK RecvK W : Type}
 
 structure Env (proto : MTP.Scheme Msg SendK RecvK W) where
   clock : ℕ
-  challenge : MTP.Session proto.receiver.State W
+  challenge : Session proto.receiver.State W
   challengeOutput : Option (Option Msg)
-  senders : List (MTP.Session proto.sender.State W)
+  senders : List (Session proto.sender.State W)
 
 inductive Op (Msg W : Type) where
   | openSender : Msg → Op Msg W
@@ -35,7 +35,7 @@ def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (sendk : SendK) :
       let env ← get
       let (tr, c') := recordOpt ⟨[]⟩ opening env.clock
       let sid := env.senders.length
-      let s0 : MTP.Session proto.sender.State W := ⟨st, tr⟩
+      let s0 : Session proto.sender.State W := ⟨st, tr⟩
       set { env with clock := c', senders := env.senders ++ [s0] }
       pure (sid, opening)
   | .stepSender sid w => do

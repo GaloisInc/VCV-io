@@ -19,6 +19,10 @@ structure Party (In W Out : Type) where
 structure Transcript (W : Type) where
   entries : List (W × ℕ)
 
+structure Session (σ W : Type) where
+  state : σ
+  transcript : Transcript W
+
 def interleave : Bool → List (ℕ × ℕ) → List ℕ
   | _, [] => []
   | ab, (a, b) :: rest => (if ab then [a, b] else [b, a]) ++ interleave (!ab) rest
@@ -51,10 +55,6 @@ structure Scheme (Msg SendK RecvK W : Type) where
   setup : ProbComp (SendK × RecvK)
   sender : Party (SendK × Msg) W Unit
   receiver : Party RecvK W (Option Msg)
-
-structure Session (σ W : Type) where
-  state : σ
-  transcript : Transcript W
 
 end MTP
 
