@@ -6,35 +6,31 @@ Authors: Ben Hamlin
 import VCVio.CryptoFoundations.AKE.ICCA.Basic
 import VCVio.CryptoFoundations.AsymmEncAlg.INDCCA
 
-open OracleSpec OracleComp Interaction Interaction.TwoParty
-open TimestampedTranscript MsgTransmissionProtocol AKE
+open OracleSpec OracleComp
 
-namespace ICCA
+namespace AKE.ICCA
 
-variable {ι : Type} {spec : OracleSpec ι} {M PK SK C : Type}
+variable {M PK SK C : Type}
 
-def OfAsymmEncAlg (e : AsymmEncAlg (OracleComp spec) M PK SK C) :
-    MsgTransmissionProtocol (OracleComp spec) M PK SK where
-  Ms := [C]
+def OfAsymmEncAlg (e : AsymmEncAlg ProbComp M PK SK C) : MTP.Scheme M PK SK C where
+  rounds := 1
   setup := e.keygen
-  sender pk msg := do
-    let c ← e.encrypt pk msg
-    pure ⟨c, ()⟩
-  receiver sk := fun c => e.decrypt sk c
+  sender :=
+    { State := Unit
+      init := fun (pk, m) => do let c ← e.encrypt pk m; pure ((), some c)
+      step := fun _ _ => pure ((), .inr ()) }
+  receiver :=
+    { State := SK
+      init := fun sk => pure (sk, none)
+      step := fun sk c => do let m' ← e.decrypt sk c; pure (sk, .inr m') }
 
-instance instDecidableEqOfAsymmEncAlgTranscript [DecidableEq C]
-    (e : AsymmEncAlg (OracleComp spec) M PK SK C) :
-    DecidableEq (Spec.Transcript (Spec.ofList (OfAsymmEncAlg e).Ms)) :=
-  inferInstanceAs (DecidableEq (Spec.Transcript (Spec.ofList [C])))
-
-theorem OfAsymmEncAlg_correctExp [DecidableEq M] (e : AsymmEncAlg (OracleComp spec) M PK SK C)
-    (msg : M) :
-    (OfAsymmEncAlg e).CorrectExp msg = e.CorrectExp msg := by
+theorem OfAsymmEncAlg_correctExp [DecidableEq M] (e : AsymmEncAlg ProbComp M PK SK C) (msg : M) :
+    MTP.CorrectExp (OfAsymmEncAlg e) msg = e.CorrectExp msg := by
   sorry
 
-theorem OfAsymmEncAlg_perfectlyCorrect [DecidableEq M] (e : AsymmEncAlg (OracleComp spec) M PK SK C)
-    (runtime : ProbCompRuntime (OracleComp spec)) (h : e.PerfectlyCorrect runtime) :
-    (OfAsymmEncAlg e).PerfectlyCorrect runtime := by
+theorem OfAsymmEncAlg_perfectlyCorrect [DecidableEq M] (e : AsymmEncAlg ProbComp M PK SK C)
+    (h : e.PerfectlyCorrect ProbCompRuntime.probComp) :
+    MTP.PerfectlyCorrect (OfAsymmEncAlg e) := by
   sorry
 
 theorem OfAsymmEncAlg_iCCA_reduces_to_IND_CCA [DecidableEq C]
@@ -49,4 +45,4 @@ theorem OfAsymmEncAlg_iCCA_advantage [DecidableEq C]
       e.IND_CCA_Advantage ProbCompRuntime.probComp B = 2 * |advantage A| := by
   sorry
 
-end ICCA
+end AKE.ICCA

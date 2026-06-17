@@ -3,116 +3,148 @@ Copyright (c) 2026 Ben Hamlin. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Ben Hamlin
 -/
-import VCVio.CryptoFoundations.AKE.Game
+import VCVio.CryptoFoundations.AKE.Basic
 
-open OracleSpec OracleComp Interaction Interaction.TwoParty
-open TimestampedTranscript MsgTransmissionProtocol AKE
+open OracleSpec OracleComp
 
-namespace UAKE
+namespace AKE.UAKE
 
-namespace Protocol
+variable {K UK TK W : Type}
 
-variable (m : Type → Type) [Monad m] (K : Type)
+structure Scheme (K UK TK W : Type) where
+  rounds : ℕ
+  setup : ProbComp (UK × TK)
+  U : Party UK W (Option K)
+  T : Party TK W (Option K)
 
-abbrev TStrategy (Ms : List Type) : Type 0 :=
-  StrategyOver (SyntaxOver.TwoParty.pairedSpec m) Participant.focal
-    (Spec.ofList Ms) (alternatingOwner Ms) (fun _ => Option K)
-
-abbrev UStrategy (Ms : List Type) : Type 0 :=
-  StrategyOver (SyntaxOver.TwoParty.pairedSpec m) Participant.counterpart
-    (Spec.ofList Ms) (alternatingOwner Ms) (fun _ => Option K)
-
-end Protocol
-
-open Protocol
-
-structure Protocol (m : Type → Type) [Monad m] (K UK TK : Type) where
-  Ms : List Type
-  setup : m (UK × TK)
-  U : UK → UStrategy m K Ms
-  T : TK → TStrategy m K Ms
-
-namespace Protocol
-
-variable {m : Type → Type} [Monad m] {K UK TK : Type}
-
-def spec (proto : Protocol m K UK TK) : Spec :=
-  Spec.ofList proto.Ms
-
-def owner (proto : Protocol m K UK TK) : RoleDecoration proto.spec :=
-  alternatingOwner proto.Ms
-
-def execute (proto : Protocol m K UK TK) (uk : UK) (tk : TK) :
-    m (Spec.Transcript proto.spec × Option K × Option K) := do
-  let ⟨tr, kT, kU⟩ ← Interaction.TwoParty.run proto.spec proto.owner (proto.T tk) (proto.U uk)
-  pure (tr, kU, kT)
-
-def CorrectExp [DecidableEq K] (proto : Protocol m K UK TK) : m Bool := do
+def CorrectExp [DecidableEq K] (proto : Scheme K UK TK W) : ProbComp Bool := do
   let (uk, tk) ← proto.setup
-  let (_, kU, kT) ← proto.execute uk tk
-  return decide (kU = none ∨ kT = none ∨ kU = kT)
+  let (uOut, tOut) ← runHonest proto.U proto.T uk tk (proto.rounds + 1)
+  return decide (uOut.join = none ∨ tOut.join = none ∨ uOut.join = tOut.join)
 
-def PerfectlyCorrect [DecidableEq K] (proto : Protocol m K UK TK)
-    (runtime : ProbCompRuntime m) : Prop :=
-  Pr[= true | runtime.evalDist proto.CorrectExp] = 1
+def PerfectlyCorrect [DecidableEq K] (proto : Scheme K UK TK W) : Prop :=
+  Pr[= true | CorrectExp proto] = 1
 
-end Protocol
+structure TSession (proto : Scheme K UK TK W) where
+  state : proto.T.State
+  transcript : Transcript W
+  key : Option (Option K)
+  revealed : Bool
 
-variable {K UK TK : Type}
+structure Env (proto : Scheme K UK TK W) where
+  clock : ℕ
+  challenge : Session proto.U.State W
+  challengeOutput : Option (Option K)
+  tSessions : List (TSession proto)
 
-def Toracle (proto : Protocol ProbComp K UK TK) :
-    OracleSpec (CptStrategy proto.Ms) :=
-  fun _ => TimestampedTranscript proto.Ms × Option K
+inductive Op (W : Type) where
+  | openT : Op W
+  | stepT : ℕ → W → Op W
+  | revealT : ℕ → Op W
+  | stepChallenge : W → Op W
 
-def toracleImpl {proto : Protocol ProbComp K UK TK} (tk : TK) :
-    QueryImpl (Toracle proto) (StateT (Env proto.Ms) ProbComp) := fun cpt => do
-  let ⟨tr, kT, _⟩ ←
-    (Interaction.TwoParty.run proto.spec proto.owner (proto.T tk) cpt : ProbComp _)
-  let session ← logSession tr
-  pure (session, kT)
+def oracleSpec (K W : Type) : OracleSpec (Op W)
+  | .openT => ℕ × Option W
+  | .stepT _ _ => W ⊕ Unit
+  | .revealT _ => Option K
+  | .stepChallenge _ => W ⊕ Unit
 
-def oracleImpl {proto : Protocol ProbComp K UK TK} (tk : TK) :
-    QueryImpl (unifSpec + Toracle proto) (StateT (Env proto.Ms) ProbComp) :=
-  withUnif (toracleImpl (proto := proto) tk)
+def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
+    QueryImpl (oracleSpec K W) (StateT (Env proto) ProbComp) := fun op =>
+  match op with
+  | .openT => do
+      let (st, opening) ← (proto.T.init tk : ProbComp _)
+      let env ← get
+      let (tr, c') := recordOpt ⟨[]⟩ opening env.clock
+      let sid := env.tSessions.length
+      let t0 : TSession proto := ⟨st, tr, none, false⟩
+      set { env with clock := c', tSessions := env.tSessions ++ [t0] }
+      pure (sid, opening)
+  | .stepT sid w => do
+      let env ← get
+      match env.tSessions[sid]? with
+      | none => pure (.inr ())
+      | some t =>
+        match t.key with
+        | some _ => pure (.inr ())
+        | none => do
+          let (st', res) ← (proto.T.step t.state w : ProbComp _)
+          let (tr1, c1) := recordOne t.transcript w env.clock
+          match res with
+          | .inl (w', oOut) =>
+              let (tr2, c2) := recordOne tr1 w' c1
+              let t' : TSession proto := ⟨st', tr2, oOut, t.revealed⟩
+              set { env with clock := c2, tSessions := env.tSessions.set sid t' }
+              pure (.inl w')
+          | .inr kT =>
+              let t' : TSession proto := ⟨st', tr1, some kT, t.revealed⟩
+              set { env with clock := c1, tSessions := env.tSessions.set sid t' }
+              pure (.inr ())
+  | .revealT sid => do
+      let env ← get
+      match env.tSessions[sid]? with
+      | none => pure none
+      | some t =>
+        set { env with tSessions := env.tSessions.set sid { t with revealed := true } }
+        pure t.key.join
+  | .stepChallenge w => do
+      let env ← get
+      match env.challengeOutput with
+      | some _ => pure (.inr ())
+      | none => do
+          let (st', res) ← (proto.U.step env.challenge.state w : ProbComp _)
+          let (tr1, c1) := recordOne env.challenge.transcript w env.clock
+          match res with
+          | .inl (w', _) =>
+              let (tr2, c2) := recordOne tr1 w' c1
+              set { env with clock := c2, challenge := ⟨st', tr2⟩ }
+              pure (.inl w')
+          | .inr k0 =>
+              set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeOutput := some k0 }
+              pure (.inr ())
 
-structure Adversary (proto : Protocol ProbComp K UK TK) where
+structure Adversary (proto : Scheme K UK TK W) where
   State : Type
-  challenge : UK → OracleComp (unifSpec + Toracle proto)
-    (SenderStrategy ProbComp proto.Ms × State)
-  post : State → Option K → OracleComp (unifSpec + Toracle proto)
-    (Bool × Option (TimestampedTranscript proto.Ms))
+  challenge : UK → Option W → OracleComp (unifSpec + oracleSpec K W) State
+  post : State → Option K → OracleComp (unifSpec + oracleSpec K W) Bool
 
-variable {proto : Protocol ProbComp K UK TK}
-  [DecidableEq (Spec.Transcript (Spec.ofList proto.Ms))]
+structure ChallengeResult (proto : Scheme K UK TK W) where
+  K0 : Option K
+  challengeTr : Transcript W
+  oracleTrs : List (Transcript W)
 
-def isPingPong (cr : ChallengeResult proto.Ms (Option K)) : Bool :=
-  pingPong Role.receiver cr.oracleSessions cr.transcript
+def challengeSession {proto : Scheme K UK TK W} (A : Adversary proto) (uk : UK) (tk : TK) :
+    ProbComp (ChallengeResult proto × (A.State × Env proto × TK)) := do
+  let (u0, opening) ← (proto.U.init uk : ProbComp _)
+  let (tr0, c0) := recordOpt ⟨[]⟩ opening 0
+  let init : Env proto := ⟨c0, ⟨u0, tr0⟩, none, []⟩
+  let (st, env) ← (simulateQ (withUnif (oracleImpl proto tk)) (A.challenge uk opening)).run init
+  pure (⟨env.challengeOutput.join, env.challenge.transcript, env.tSessions.map (·.transcript)⟩,
+    (st, env, tk))
 
-def isFullPingPong (cr : ChallengeResult proto.Ms (Option K)) :
-    Option (TimestampedTranscript proto.Ms) → Bool
-  | none => false
-  | some T => decide (Matching Role.receiver T cr.transcript)
+def isPingPong [DecidableEq W] {proto : Scheme K UK TK W} (cr : ChallengeResult proto) : Bool :=
+  pingPong (proto.rounds % 2 == 1) cr.oracleTrs cr.challengeTr
 
-def challengeSession (A : Adversary proto) (uk : UK) (tk : TK) :
-    ProbComp (ChallengeResult proto.Ms (Option K) × (A.State × Env proto.Ms × TK)) := do
-  let ((focalStrat, st), env) ← (simulateQ (oracleImpl tk) (A.challenge uk)).run ⟨0, []⟩
-  let ⟨tr, _, K0⟩ ← Interaction.TwoParty.run proto.spec proto.owner focalStrat (proto.U uk)
-  let challengeTr := stampAt proto.Ms tr env.clock
-  pure (⟨K0, challengeTr, env.sessions⟩,
-    (st, { env with clock := env.clock + proto.Ms.length }, tk))
+def fullPingPong [DecidableEq W] {proto : Scheme K UK TK W}
+    (env : Env proto) (cr : ChallengeResult proto) : Bool :=
+  pingPong (proto.rounds % 2 == 1)
+    ((env.tSessions.filter (·.revealed)).map (·.transcript)) cr.challengeTr
 
-def finalize (A : Adversary proto) (st : A.State × Env proto.Ms × TK)
-    (cr : ChallengeResult proto.Ms (Option K)) (b : Bool) (K1 : Option K) : ProbComp Bool := do
+def finalize [DecidableEq W] {proto : Scheme K UK TK W} (A : Adversary proto)
+    (st : A.State × Env proto × TK) (cr : ChallengeResult proto) (b : Bool) (K1 : Option K) :
+    ProbComp Bool := do
   let (aSt, env, tk) := st
-  let Kb := if b then K1 else cr.outcome
-  let ((b', revealed), _) ← (simulateQ (oracleImpl tk) (A.post aSt Kb)).run env
-  if isFullPingPong cr revealed then $ᵗ Bool else pure (b' == b)
+  let Kb := if b then K1 else cr.K0
+  let (b', env') ← (simulateQ (withUnif (oracleImpl proto tk)) (A.post aSt Kb)).run env
+  if fullPingPong env' cr then $ᵗ Bool
+  else pure (b' == b)
 
-def Exp [SampleableType K] (A : Adversary proto) : ProbComp Bool := do
+def Exp [SampleableType K] [DecidableEq W] {proto : Scheme K UK TK W} (A : Adversary proto) :
+    ProbComp Bool := do
   let (uk, tk) ← proto.setup
   let b ← $ᵗ Bool
   let (cr, st) ← challengeSession A uk tk
-  if cr.outcome.isNone then
+  if cr.K0.isNone then
     let K1 := none
     finalize A st cr b K1
   else if !isPingPong cr then
@@ -121,7 +153,8 @@ def Exp [SampleableType K] (A : Adversary proto) : ProbComp Bool := do
     let K1 ← some <$> ($ᵗ K)
     finalize A st cr b K1
 
-noncomputable def advantage [SampleableType K] (A : Adversary proto) : ℝ :=
+noncomputable def advantage [SampleableType K] [DecidableEq W] {proto : Scheme K UK TK W}
+    (A : Adversary proto) : ℝ :=
   |(Pr[= true | Exp A]).toReal - 1 / 2|
 
-end UAKE
+end AKE.UAKE

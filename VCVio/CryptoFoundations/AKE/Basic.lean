@@ -3,11 +3,13 @@ Copyright (c) 2026 Ben Hamlin. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Ben Hamlin
 -/
-import VCVio.CryptoFoundations.AKE.Game
+import VCVio.CryptoFoundations.SecExp
+import VCVio.OracleComp.SimSemantics.Append
+import VCVio.OracleComp.SimSemantics.SimulateQ
 
 open OracleSpec OracleComp
 
-namespace Stepped
+namespace AKE
 
 variable {Msg SendK RecvK W : Type}
 
@@ -47,6 +49,12 @@ def recordOne (tr : Transcript W) (w : W) (clock : ℕ) : Transcript W × ℕ :=
 def recordOpt (tr : Transcript W) : Option W → ℕ → Transcript W × ℕ
   | none, clock => (tr, clock)
   | some w, clock => recordOne tr w clock
+
+def withUnif {ι : Type} {customSpec : OracleSpec ι} {σ : Type}
+    (customImpl : QueryImpl customSpec (StateT σ ProbComp)) :
+    QueryImpl (unifSpec + customSpec) (StateT σ ProbComp) :=
+  (HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget (StateT σ ProbComp)
+    + customImpl
 
 def runHonestLoop {InP OutP InQ OutQ : Type}
     (P : Party InP W OutP) (Q : Party InQ W OutQ) :
@@ -94,4 +102,4 @@ def PerfectlyCorrect [DecidableEq Msg] (proto : Scheme Msg SendK RecvK W) : Prop
 
 end MTP
 
-end Stepped
+end AKE

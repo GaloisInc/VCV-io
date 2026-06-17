@@ -3,66 +3,112 @@ Copyright (c) 2026 Ben Hamlin. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Ben Hamlin
 -/
-import VCVio.CryptoFoundations.AKE.Game
+import VCVio.CryptoFoundations.AKE.Basic
 
-open OracleSpec OracleComp Interaction Interaction.TwoParty
-open TimestampedTranscript MsgTransmissionProtocol AKE
+open OracleSpec OracleComp
 
-namespace ICCA
+namespace AKE.ICCA
 
-variable {Msg SendK RecvK : Type}
+variable {Msg SendK RecvK W : Type}
 
-def Roracle (proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK) :
-    OracleSpec (SenderStrategy ProbComp proto.Ms) :=
-  fun _ => TimestampedTranscript proto.Ms × Option Msg
+structure Env (proto : MTP.Scheme Msg SendK RecvK W) where
+  clock : ℕ
+  challenge : Option (Session proto.sender.State W)
+  receivers : List (Session proto.receiver.State W)
 
-def roracleImpl {proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK} (recvk : RecvK) :
-    QueryImpl (Roracle proto) (StateT (Env proto.Ms) ProbComp) := fun sendStrat => do
-  let ⟨tr, _, out⟩ ←
-    (Interaction.TwoParty.run proto.spec proto.owner sendStrat (proto.receiver recvk) : ProbComp _)
-  let session ← logSession tr
-  pure (session, out)
+inductive Op (W : Type) where
+  | openReceiver : Op W
+  | stepReceiver : ℕ → W → Op W
+  | stepChallenge : W → Op W
 
-def oracleImpl {proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK} (recvk : RecvK) :
-    QueryImpl (unifSpec + Roracle proto) (StateT (Env proto.Ms) ProbComp) :=
-  withUnif (roracleImpl (proto := proto) recvk)
+def oracleSpec (Msg W : Type) : OracleSpec (Op W)
+  | .openReceiver => ℕ × Option W
+  | .stepReceiver _ _ => W ⊕ Option Msg
+  | .stepChallenge _ => W ⊕ Unit
 
-structure Adversary (proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK) where
+def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (recvk : RecvK) :
+    QueryImpl (oracleSpec Msg W) (StateT (Env proto) ProbComp) := fun op =>
+  match op with
+  | .openReceiver => do
+      let (st, opening) ← (proto.receiver.init recvk : ProbComp _)
+      let env ← get
+      let (tr, c') := recordOpt ⟨[]⟩ opening env.clock
+      let sid := env.receivers.length
+      let r0 : Session proto.receiver.State W := ⟨st, tr⟩
+      set { env with clock := c', receivers := env.receivers ++ [r0] }
+      pure (sid, opening)
+  | .stepReceiver sid w => do
+      let env ← get
+      match env.receivers[sid]? with
+      | none => pure (.inr none)
+      | some r =>
+        let (st', res) ← (proto.receiver.step r.state w : ProbComp _)
+        let (tr1, c1) := recordOne r.transcript w env.clock
+        match res with
+        | .inl (w', _) =>
+            let (tr2, c2) := recordOne tr1 w' c1
+            set { env with clock := c2, receivers := env.receivers.set sid ⟨st', tr2⟩ }
+            pure (.inl w')
+        | .inr out =>
+            set { env with clock := c1, receivers := env.receivers.set sid ⟨st', tr1⟩ }
+            pure (.inr out)
+  | .stepChallenge w => do
+      let env ← get
+      match env.challenge with
+      | none => pure (.inr ())
+      | some c =>
+        let (st', res) ← (proto.sender.step c.state w : ProbComp _)
+        let (tr1, c1) := recordOne c.transcript w env.clock
+        match res with
+        | .inl (w', _) =>
+            let (tr2, c2) := recordOne tr1 w' c1
+            set { env with clock := c2, challenge := some ⟨st', tr2⟩ }
+            pure (.inl w')
+        | .inr out =>
+            set { env with clock := c1, challenge := some ⟨st', tr1⟩ }
+            pure (.inr out)
+
+structure Adversary (proto : MTP.Scheme Msg SendK RecvK W) where
   State : Type
-  choose : SendK → OracleComp (unifSpec + Roracle proto) (Msg × Msg × CptStrategy proto.Ms × State)
-  guess : State → Spec.Transcript proto.spec → OracleComp (unifSpec + Roracle proto) Bool
+  choose : SendK → OracleComp (unifSpec + oracleSpec Msg W) (Msg × Msg × State)
+  guess : State → Option W → OracleComp (unifSpec + oracleSpec Msg W) Bool
 
-variable {proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK}
-  [DecidableEq (Spec.Transcript (Spec.ofList proto.Ms))]
+structure Result (proto : MTP.Scheme Msg SendK RecvK W) where
+  guess : Bool
+  challengeTr : Transcript W
+  oracleTrs : List (Transcript W)
 
-def isPingPong (cr : ChallengeResult proto.Ms Bool) : Bool :=
-  pingPong Role.sender cr.oracleSessions cr.transcript
+def chooseMessages {proto : MTP.Scheme Msg SendK RecvK W} (A : Adversary proto)
+    (sendk : SendK) (recvk : RecvK) : ProbComp (Msg × Msg × (A.State × Env proto)) := do
+  let init : Env proto := ⟨0, none, []⟩
+  let ((m0, m1, st), env) ←
+    (simulateQ (withUnif (oracleImpl proto recvk)) (A.choose sendk)).run init
+  pure (m0, m1, (st, env))
 
-def chooseMessages (A : Adversary proto) (sendk : SendK) (recvk : RecvK) :
-    ProbComp (Msg × Msg × (CptStrategy proto.Ms × A.State × Env proto.Ms)) := do
-  let ((m0, m1, cpt, st), env) ← (simulateQ (oracleImpl recvk) (A.choose sendk)).run ⟨0, []⟩
-  pure (m0, m1, (cpt, st, env))
+def challengeSession {proto : MTP.Scheme Msg SendK RecvK W} (A : Adversary proto)
+    (ch : A.State × Env proto) (sendk : SendK) (recvk : RecvK) (mb : Msg) :
+    ProbComp (Result proto) := do
+  let (st, env) := ch
+  let (s0, opening) ← (proto.sender.init (sendk, mb) : ProbComp _)
+  let (tr, c') := recordOpt ⟨[]⟩ opening env.clock
+  let env' : Env proto := { env with clock := c', challenge := some ⟨s0, tr⟩ }
+  let (b', env'') ← (simulateQ (withUnif (oracleImpl proto recvk)) (A.guess st opening)).run env'
+  pure ⟨b', (env''.challenge.map (·.transcript)).getD ⟨[]⟩, env''.receivers.map (·.transcript)⟩
 
-def challengeSession (A : Adversary proto) (recvk : RecvK)
-    (ch : CptStrategy proto.Ms × A.State × Env proto.Ms) (sendk : SendK) (mb : Msg) :
-    ProbComp (ChallengeResult proto.Ms Bool) := do
-  let (cpt, st, env) := ch
-  let ⟨tr, _, _⟩ ← Interaction.TwoParty.run proto.spec proto.owner (proto.sender sendk mb) cpt
-  let challengeTr := stampAt proto.Ms tr env.clock
-  let (b', env') ←
-    (simulateQ (oracleImpl recvk) (A.guess st tr)).run
-      ⟨env.clock + proto.Ms.length, env.sessions⟩
-  pure ⟨b', challengeTr, env'.sessions⟩
+def isPingPong [DecidableEq W] {proto : MTP.Scheme Msg SendK RecvK W} (r : Result proto) : Bool :=
+  pingPong (proto.rounds % 2 == 0) r.oracleTrs r.challengeTr
 
-def Exp (A : Adversary proto) : ProbComp Bool := do
+def Exp [DecidableEq W] {proto : MTP.Scheme Msg SendK RecvK W} (A : Adversary proto) :
+    ProbComp Bool := do
   let b ← $ᵗ Bool
   let (sendk, recvk) ← proto.setup
   let (m0, m1, ch) ← chooseMessages A sendk recvk
-  let cr ← challengeSession A recvk ch sendk (if b then m1 else m0)
+  let cr ← challengeSession A ch sendk recvk (if b then m1 else m0)
   if isPingPong cr then $ᵗ Bool
-  else pure (cr.outcome == b)
+  else pure (cr.guess == b)
 
-noncomputable def advantage (A : Adversary proto) : ℝ :=
+noncomputable def advantage [DecidableEq W] {proto : MTP.Scheme Msg SendK RecvK W}
+    (A : Adversary proto) : ℝ :=
   (Pr[= true | Exp A]).toReal - 1 / 2
 
-end ICCA
+end AKE.ICCA

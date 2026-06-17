@@ -3,11 +3,11 @@ Copyright (c) 2026 Ben Hamlin. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Ben Hamlin
 -/
-import VCVio.CryptoFoundations.AKE.Stepped.Basic
+import VCVio.CryptoFoundations.AKE.Basic
 
-open OracleSpec OracleComp AKE
+open OracleSpec OracleComp
 
-namespace Stepped.ICMA
+namespace AKE.ICMA
 
 variable {Msg SendK RecvK W : Type}
 
@@ -98,4 +98,4 @@ noncomputable def advantage [DecidableEq W] {proto : MTP.Scheme Msg SendK RecvK 
     (A : Adversary proto) : ℝ :=
   (Pr[= true | Exp A]).toReal
 
-end Stepped.ICMA
+end AKE.ICMA
