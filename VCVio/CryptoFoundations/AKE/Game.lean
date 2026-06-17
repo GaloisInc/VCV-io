@@ -10,33 +10,29 @@ open TimestampedTranscript MsgTransmissionProtocol
 
 namespace AKE
 
-variable {Msg SendK RecvK : Type}
-
-abbrev CptStrategy (proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK) : Type :=
+abbrev CptStrategy (Ms : List Type) : Type :=
   StrategyOver (SyntaxOver.TwoParty.pairedSpec ProbComp) Participant.counterpart
-    proto.spec proto.owner (fun _ => Unit)
+    (Spec.ofList Ms) (alternatingOwner Ms) (fun _ => Unit)
 
-structure Env (proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK) where
+structure Env (Ms : List Type) where
   clock : ℕ
-  sessions : List (TimestampedTranscript proto.Ms)
+  sessions : List (TimestampedTranscript Ms)
 
-structure ChallengeResult (proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK)
-    (Outcome : Type) where
+structure ChallengeResult (Ms : List Type) (Outcome : Type) where
   outcome : Outcome
-  transcript : TimestampedTranscript proto.Ms
-  oracleSessions : List (TimestampedTranscript proto.Ms)
+  transcript : TimestampedTranscript Ms
+  oracleSessions : List (TimestampedTranscript Ms)
 
-def stampAt (proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK)
-    (tr : Spec.Transcript proto.spec) (clock : ℕ) : TimestampedTranscript proto.Ms :=
-  ⟨tr, (List.range proto.Ms.length).map (· + clock),
+def stampAt (Ms : List Type) (tr : Spec.Transcript (Spec.ofList Ms)) (clock : ℕ) :
+    TimestampedTranscript Ms :=
+  ⟨tr, (List.range Ms.length).map (· + clock),
     by simp [List.length_map, List.length_range]⟩
 
-def logSession {proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK}
-    (tr : Spec.Transcript proto.spec) :
-    StateT (Env proto) ProbComp (TimestampedTranscript proto.Ms) := do
+def logSession {Ms : List Type} (tr : Spec.Transcript (Spec.ofList Ms)) :
+    StateT (Env Ms) ProbComp (TimestampedTranscript Ms) := do
   let env ← get
-  let session := stampAt proto tr env.clock
-  set (⟨env.clock + proto.Ms.length, env.sessions ++ [session]⟩ : Env proto)
+  let session := stampAt Ms tr env.clock
+  set (⟨env.clock + Ms.length, env.sessions ++ [session]⟩ : Env Ms)
   pure session
 
 def withUnif {ι : Type} {customSpec : OracleSpec ι} {σ : Type}
@@ -45,10 +41,9 @@ def withUnif {ι : Type} {customSpec : OracleSpec ι} {σ : Type}
   (HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget (StateT σ ProbComp)
     + customImpl
 
-def pingPong {proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK}
-    [DecidableEq (Spec.Transcript (Spec.ofList proto.Ms))] (challenger : Role)
-    (oracleSessions : List (TimestampedTranscript proto.Ms))
-    (challengeTr : TimestampedTranscript proto.Ms) : Bool :=
+def pingPong {Ms : List Type} [DecidableEq (Spec.Transcript (Spec.ofList Ms))] (challenger : Role)
+    (oracleSessions : List (TimestampedTranscript Ms))
+    (challengeTr : TimestampedTranscript Ms) : Bool :=
   oracleSessions.any fun T => decide (Matching challenger T challengeTr)
 
 end AKE
