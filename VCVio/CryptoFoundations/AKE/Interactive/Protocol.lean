@@ -110,10 +110,10 @@ def CorrectExp [DecidableEq Msg] (proto : MsgTransmissionProtocol m Msg SendK Re
   return decide (out = some msg)
 
 /-- A protocol is perfectly correct when, for every message, an honest session
-recovers it with probability `1`. -/
+recovers it with probability `1`, as observed through the ambient runtime. -/
 def PerfectlyCorrect [DecidableEq Msg]
-    (proto : MsgTransmissionProtocol ProbComp Msg SendK RecvK) : Prop :=
-  ∀ msg : Msg, Pr[= true | proto.CorrectExp msg] = 1
+    (proto : MsgTransmissionProtocol m Msg SendK RecvK) (runtime : ProbCompRuntime m) : Prop :=
+  ∀ msg : Msg, Pr[= true | runtime.evalDist (proto.CorrectExp msg)] = 1
 
 end MsgTransmissionProtocol
 
