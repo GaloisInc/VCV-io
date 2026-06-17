@@ -65,9 +65,10 @@ def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (sendk : SendK) :
               let (tr2, c2) := recordOne tr1 w' c1
               set { env with clock := c2, challenge := ⟨st', tr2⟩ }
               pure (.inl w')
-          | .inr out =>
-              set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeOutput := some out }
-              pure (.inr out)
+          | .inr () =>
+              let o ← (proto.receiver.output st' : ProbComp _)
+              set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeOutput := some o.join }
+              pure (.inr o.join)
 
 structure Adversary (proto : MTP.Scheme Msg SendK RecvK W) where
   run : RecvK → OracleComp (unifSpec + oracleSpec Msg W) Unit

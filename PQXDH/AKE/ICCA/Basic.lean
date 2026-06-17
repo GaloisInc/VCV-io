@@ -49,9 +49,10 @@ def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (recvk : RecvK) :
             let (tr2, c2) := recordOne tr1 w' c1
             set { env with clock := c2, receivers := env.receivers.set sid ⟨st', tr2⟩ }
             pure (.inl w')
-        | .inr out =>
+        | .inr () =>
+            let o ← (proto.receiver.output st' : ProbComp _)
             set { env with clock := c1, receivers := env.receivers.set sid ⟨st', tr1⟩ }
-            pure (.inr out)
+            pure (.inr o.join)
   | .stepChallenge w => do
       let env ← get
       match env.challenge with
@@ -64,9 +65,9 @@ def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (recvk : RecvK) :
             let (tr2, c2) := recordOne tr1 w' c1
             set { env with clock := c2, challenge := some ⟨st', tr2⟩ }
             pure (.inl w')
-        | .inr out =>
+        | .inr () =>
             set { env with clock := c1, challenge := some ⟨st', tr1⟩ }
-            pure (.inr out)
+            pure (.inr ())
 
 structure Adversary (proto : MTP.Scheme Msg SendK RecvK W) where
   State : Type

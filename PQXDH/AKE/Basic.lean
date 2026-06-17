@@ -16,7 +16,8 @@ variable {Msg SendK RecvK W : Type}
 structure Party (In W Out : Type) where
   State : Type
   init : In → ProbComp (State × Option W)
-  step : State → W → ProbComp (State × ((W × Option Out) ⊕ Out))
+  step : State → W → ProbComp (State × ((W × Bool) ⊕ Unit))
+  output : State → ProbComp (Option Out)
 
 structure Transcript (W : Type) where
   entries : List (W × ℕ)
@@ -58,31 +59,31 @@ def withUnif {ι : Type} {customSpec : OracleSpec ι} {σ : Type}
 
 def runHonestLoop {InP OutP InQ OutQ : Type}
     (P : Party InP W OutP) (Q : Party InQ W OutQ) :
-    ℕ → P.State → Q.State → Option OutP → Option OutQ → W → Bool →
-      ProbComp (Option OutP × Option OutQ)
-  | 0, _, _, pOut, qOut, _, _ => pure (pOut, qOut)
-  | fuel + 1, pState, qState, pOut, qOut, w, true => do
+    ℕ → P.State → Q.State → W → Bool → ProbComp (P.State × Q.State)
+  | 0, pState, qState, _, _ => pure (pState, qState)
+  | fuel + 1, pState, qState, w, true => do
       let (qState', react) ← Q.step qState w
       match react with
-      | .inl (w', none) => runHonestLoop P Q fuel pState qState' pOut qOut w' false
-      | .inl (w', some out) => runHonestLoop P Q fuel pState qState' pOut (some out) w' false
-      | .inr out => pure (pOut, some out)
-  | fuel + 1, pState, qState, pOut, qOut, w, false => do
+      | .inl (w', _) => runHonestLoop P Q fuel pState qState' w' false
+      | .inr () => pure (pState, qState')
+  | fuel + 1, pState, qState, w, false => do
       let (pState', react) ← P.step pState w
       match react with
-      | .inl (w', none) => runHonestLoop P Q fuel pState' qState pOut qOut w' true
-      | .inl (w', some out) => runHonestLoop P Q fuel pState' qState (some out) qOut w' true
-      | .inr out => pure (some out, qOut)
+      | .inl (w', _) => runHonestLoop P Q fuel pState' qState w' true
+      | .inr () => pure (pState', qState)
 
 def runHonest {InP OutP InQ OutQ : Type}
     (P : Party InP W OutP) (Q : Party InQ W OutQ) (inP : InP) (inQ : InQ) (fuel : ℕ) :
     ProbComp (Option OutP × Option OutQ) := do
   let (pState, pOpen) ← P.init inP
   let (qState, qOpen) ← Q.init inQ
-  match pOpen, qOpen with
-  | some w, _ => runHonestLoop P Q fuel pState qState none none w true
-  | none, some w => runHonestLoop P Q fuel pState qState none none w false
-  | none, none => pure (none, none)
+  let (pState', qState') ← match pOpen, qOpen with
+    | some w, _ => runHonestLoop P Q fuel pState qState w true
+    | none, some w => runHonestLoop P Q fuel pState qState w false
+    | none, none => pure (pState, qState)
+  let pOut ← P.output pState'
+  let qOut ← Q.output qState'
+  pure (pOut, qOut)
 
 namespace MTP
 

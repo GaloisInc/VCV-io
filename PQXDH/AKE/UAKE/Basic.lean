@@ -34,7 +34,7 @@ structure TSession (proto : Scheme K UK TK W) where
 structure Env (proto : Scheme K UK TK W) where
   clock : ℕ
   challenge : Session proto.U.State W
-  challengeOutput : Option (Option K)
+  challengeDone : Bool
   tSessions : List (TSession proto)
 
 inductive Op (W : Type) where
@@ -71,13 +71,15 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
           let (st', res) ← (proto.T.step t.state w : ProbComp _)
           let (tr1, c1) := recordOne t.transcript w env.clock
           match res with
-          | .inl (w', oOut) =>
+          | .inl (w', done) =>
               let (tr2, c2) := recordOne tr1 w' c1
-              let t' : TSession proto := ⟨st', tr2, oOut, t.revealed⟩
+              let key ← if done then (proto.T.output st' : ProbComp _) else pure none
+              let t' : TSession proto := ⟨st', tr2, key, t.revealed⟩
               set { env with clock := c2, tSessions := env.tSessions.set sid t' }
               pure (.inl w')
-          | .inr kT =>
-              let t' : TSession proto := ⟨st', tr1, some kT, t.revealed⟩
+          | .inr () =>
+              let key ← (proto.T.output st' : ProbComp _)
+              let t' : TSession proto := ⟨st', tr1, key, t.revealed⟩
               set { env with clock := c1, tSessions := env.tSessions.set sid t' }
               pure (.inr ())
   | .revealT sid => do
@@ -89,18 +91,17 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
         pure t.key.join
   | .stepChallenge w => do
       let env ← get
-      match env.challengeOutput with
-      | some _ => pure (.inr ())
-      | none => do
+      if env.challengeDone then pure (.inr ())
+      else do
           let (st', res) ← (proto.U.step env.challenge.state w : ProbComp _)
           let (tr1, c1) := recordOne env.challenge.transcript w env.clock
           match res with
-          | .inl (w', _) =>
+          | .inl (w', done) =>
               let (tr2, c2) := recordOne tr1 w' c1
-              set { env with clock := c2, challenge := ⟨st', tr2⟩ }
+              set { env with clock := c2, challenge := ⟨st', tr2⟩, challengeDone := done }
               pure (.inl w')
-          | .inr k0 =>
-              set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeOutput := some k0 }
+          | .inr () =>
+              set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeDone := true }
               pure (.inr ())
 
 structure Adversary (proto : Scheme K UK TK W) where
@@ -117,9 +118,10 @@ def challengeSession {proto : Scheme K UK TK W} (A : Adversary proto) (uk : UK) 
     ProbComp (ChallengeResult proto × (A.State × Env proto × TK)) := do
   let (u0, opening) ← (proto.U.init uk : ProbComp _)
   let (tr0, c0) := recordOpt ⟨[]⟩ opening 0
-  let init : Env proto := ⟨c0, ⟨u0, tr0⟩, none, []⟩
+  let init : Env proto := ⟨c0, ⟨u0, tr0⟩, false, []⟩
   let (st, env) ← (simulateQ (withUnif (oracleImpl proto tk)) (A.challenge uk opening)).run init
-  pure (⟨env.challengeOutput.join, env.challenge.transcript, env.tSessions.map (·.transcript)⟩,
+  let k0 ← (proto.U.output env.challenge.state : ProbComp _)
+  pure (⟨k0.join, env.challenge.transcript, env.tSessions.map (·.transcript)⟩,
     (st, env, tk))
 
 def isPingPong [DecidableEq W] {proto : Scheme K UK TK W} (cr : ChallengeResult proto) : Bool :=

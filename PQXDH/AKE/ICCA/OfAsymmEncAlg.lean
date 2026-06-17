@@ -18,11 +18,15 @@ def OfAsymmEncAlg (e : AsymmEncAlg ProbComp M PK SK C) : MTP.Scheme M PK SK C wh
   sender :=
     { State := Unit
       init := fun (pk, m) => do let c ← e.encrypt pk m; pure ((), some c)
-      step := fun _ _ => pure ((), .inr ()) }
+      step := fun _ _ => pure ((), .inr ())
+      output := fun _ => pure (some ()) }
   receiver :=
-    { State := SK
-      init := fun sk => pure (sk, none)
-      step := fun sk c => do let m' ← e.decrypt sk c; pure (sk, .inr m') }
+    { State := SK × Option C
+      init := fun sk => pure ((sk, none), none)
+      step := fun st c => pure ((st.1, some c), .inr ())
+      output := fun st => match st.2 with
+        | some c => do let m' ← e.decrypt st.1 c; pure (some m')
+        | none => pure none }
 
 theorem OfAsymmEncAlg_correctExp [DecidableEq M] (e : AsymmEncAlg ProbComp M PK SK C) (msg : M) :
     MTP.CorrectExp (OfAsymmEncAlg e) msg = e.CorrectExp msg := by
