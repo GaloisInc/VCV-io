@@ -19,6 +19,18 @@ structure Party (In W Out : Type) where
   step : State → W → ProbComp (State × ((W × Bool) ⊕ Unit))
   output : State → ProbComp (Option Out)
 
+namespace Party
+
+def RecoveryDeterministic {In W Out : Type} (P : Party In W Out) : Prop :=
+  ∀ st : P.State, ∃ m, P.output st = pure m
+
+def OutputsAtCompletion {In W Out : Type} (P : Party In W Out) : Prop :=
+  (∀ i st o, (st, o) ∈ support (P.init i) → ∀ m ∈ support (P.output st), m = none) ∧
+    (∀ st w st' w' b, (st', Sum.inl (w', b)) ∈ support (P.step st w) →
+      ∀ m ∈ support (P.output st'), m = none)
+
+end Party
+
 structure Transcript (W : Type) where
   entries : List (W × ℕ)
 
@@ -146,9 +158,6 @@ def CorrectExp [DecidableEq Msg] (proto : Scheme Msg SendK RecvK W) (m : Msg) : 
 
 def PerfectlyCorrect [DecidableEq Msg] (proto : Scheme Msg SendK RecvK W) : Prop :=
   ∀ m : Msg, Pr[= true | CorrectExp proto m] = 1
-
-def RecoveryDeterministic (proto : Scheme Msg SendK RecvK W) : Prop :=
-  ∀ st : proto.receiver.State, ∃ m, proto.receiver.output st = pure m
 
 end MTP
 
