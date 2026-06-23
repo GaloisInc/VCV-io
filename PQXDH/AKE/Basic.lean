@@ -101,6 +101,9 @@ def CorrectExp [DecidableEq Msg] (proto : Scheme Msg SendK RecvK W) (m : Msg) : 
 def PerfectlyCorrect [DecidableEq Msg] (proto : Scheme Msg SendK RecvK W) : Prop :=
   ∀ m : Msg, Pr[= true | CorrectExp proto m] = 1
 
+def RecoveryDeterministic (proto : Scheme Msg SendK RecvK W) : Prop :=
+  ∀ st : proto.receiver.State, ∃ m, proto.receiver.output st = pure m
+
 end MTP
 
 end AKE
