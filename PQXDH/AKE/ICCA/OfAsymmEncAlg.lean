@@ -17,13 +17,13 @@ def OfAsymmEncAlg (e : AsymmEncAlg ProbComp M PK SK C) : MTP.Scheme M PK SK C wh
   setup := e.keygen
   sender :=
     { State := Unit
-      init := fun (pk, m) => do let c ← e.encrypt pk m; pure ((), some c)
-      step := fun _ _ => pure ((), .inr ())
+      init := fun (pk, m) => do let c ← e.encrypt pk m; pure (.speakFirst () c)
+      step := fun _ _ => pure .reject
       output := fun _ => pure (some ()) }
   receiver :=
     { State := SK × Option C
-      init := fun sk => pure ((sk, none), none)
-      step := fun st c => pure ((st.1, some c), .inr ())
+      init := fun sk => pure (.waitForMsg (sk, none))
+      step := fun st c => pure (.complete (st.1, some c))
       output := fun st => match st.2 with
         | some c => do let m' ← e.decrypt st.1 c; pure (some m')
         | none => pure none }

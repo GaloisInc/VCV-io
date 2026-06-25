@@ -11,12 +11,33 @@ open OracleSpec OracleComp
 
 namespace AKE
 
+inductive InitResult (State W : Type)
+  | speakFirst (state : State) (msg : W) : InitResult State W
+  | waitForMsg (state : State) : InitResult State W
+
+namespace InitResult
+
+@[simp] def state {State W : Type} : InitResult State W → State
+  | .speakFirst st _ => st
+  | .waitForMsg st => st
+
+@[simp] def opening {State W : Type} : InitResult State W → Option W
+  | .speakFirst _ msg => some msg
+  | .waitForMsg _ => none
+
+end InitResult
+
+inductive StepResult (State W : Type)
+  | acceptAndSend (state : State) (msg : W) (done : Bool) : StepResult State W
+  | complete (state : State) : StepResult State W
+  | reject : StepResult State W
+
 variable {Msg SendK RecvK W : Type}
 
 structure Party (In W Out : Type) where
   State : Type
-  init : In → ProbComp (State × Option W)
-  step : State → W → ProbComp (State × ((W × Bool) ⊕ Unit))
+  init : In → ProbComp (InitResult State W)
+  step : State → W → ProbComp (StepResult State W)
   output : State → ProbComp (Option Out)
 
 namespace Party
@@ -25,8 +46,8 @@ def RecoveryDeterministic {In W Out : Type} (P : Party In W Out) : Prop :=
   ∀ st : P.State, ∃ m, P.output st = pure m
 
 def OutputsAtCompletion {In W Out : Type} (P : Party In W Out) : Prop :=
-  (∀ i st o, (st, o) ∈ support (P.init i) → ∀ m ∈ support (P.output st), m = none) ∧
-    (∀ st w st' w' b, (st', Sum.inl (w', b)) ∈ support (P.step st w) →
+  (∀ i r, r ∈ support (P.init i) → ∀ m ∈ support (P.output r.state), m = none) ∧
+    (∀ st w st' w' b, StepResult.acceptAndSend st' w' b ∈ support (P.step st w) →
       ∀ m ∈ support (P.output st'), m = none)
 
 end Party
@@ -92,25 +113,25 @@ def runHonestLoop {InP OutP InQ OutQ : Type}
     ℕ → P.State → Q.State → W → Bool → ProbComp (P.State × Q.State)
   | 0, pState, qState, _, _ => pure (pState, qState)
   | fuel + 1, pState, qState, w, true => do
-      let (qState', react) ← Q.step qState w
-      match react with
-      | .inl (w', _) => runHonestLoop P Q fuel pState qState' w' false
-      | .inr () => pure (pState, qState')
+      match ← Q.step qState w with
+      | .acceptAndSend qState' w' _ => runHonestLoop P Q fuel pState qState' w' false
+      | .complete qState' => pure (pState, qState')
+      | .reject => pure (pState, qState)
   | fuel + 1, pState, qState, w, false => do
-      let (pState', react) ← P.step pState w
-      match react with
-      | .inl (w', _) => runHonestLoop P Q fuel pState' qState w' true
-      | .inr () => pure (pState', qState)
+      match ← P.step pState w with
+      | .acceptAndSend pState' w' _ => runHonestLoop P Q fuel pState' qState w' true
+      | .complete pState' => pure (pState', qState)
+      | .reject => pure (pState, qState)
 
 def runHonest {InP OutP InQ OutQ : Type}
     (P : Party InP W OutP) (Q : Party InQ W OutQ) (inP : InP) (inQ : InQ) (fuel : ℕ) :
     ProbComp (Option OutP × Option OutQ) := do
-  let (pState, pOpen) ← P.init inP
-  let (qState, qOpen) ← Q.init inQ
-  let (pState', qState') ← match pOpen, qOpen with
-    | some w, _ => runHonestLoop P Q fuel pState qState w true
-    | none, some w => runHonestLoop P Q fuel pState qState w false
-    | none, none => pure (pState, qState)
+  let pInit ← P.init inP
+  let qInit ← Q.init inQ
+  let (pState', qState') ← match pInit.opening, qInit.opening with
+    | some w, _ => runHonestLoop P Q fuel pInit.state qInit.state w true
+    | none, some w => runHonestLoop P Q fuel pInit.state qInit.state w false
+    | none, none => pure (pInit.state, qInit.state)
   let pOut ← P.output pState'
   let qOut ← Q.output qState'
   pure (pOut, qOut)

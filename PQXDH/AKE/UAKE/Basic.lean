@@ -53,13 +53,13 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
     QueryImpl (oracleSpec K W) (StateT (Env proto) ProbComp) := fun op =>
   match op with
   | .openT => do
-      let (st, opening) ← (proto.T.init tk : ProbComp _)
+      let r ← (proto.T.init tk : ProbComp _)
       let env ← get
-      let (tr, c') := recordOpt ⟨[]⟩ opening env.clock
+      let (tr, c') := recordOpt ⟨[]⟩ r.opening env.clock
       let sid := env.tSessions.length
-      let t0 : TSession proto := ⟨st, tr, none, false⟩
+      let t0 : TSession proto := ⟨r.state, tr, none, false⟩
       set { env with clock := c', tSessions := env.tSessions ++ [t0] }
-      pure (sid, opening)
+      pure (sid, r.opening)
   | .stepT sid w => do
       let env ← get
       match env.tSessions[sid]? with
@@ -68,16 +68,17 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
         match t.key with
         | some _ => pure (.inr ())
         | none => do
-          let (st', res) ← (proto.T.step t.state w : ProbComp _)
-          let (tr1, c1) := recordOne t.transcript w env.clock
-          match res with
-          | .inl (w', done) =>
+          match ← (proto.T.step t.state w : ProbComp _) with
+          | .reject => pure (.inr ())
+          | .acceptAndSend st' w' done =>
+              let (tr1, c1) := recordOne t.transcript w env.clock
               let (tr2, c2) := recordOne tr1 w' c1
               let key ← if done then (proto.T.output st' : ProbComp _) else pure none
               let t' : TSession proto := ⟨st', tr2, key, t.revealed⟩
               set { env with clock := c2, tSessions := env.tSessions.set sid t' }
               pure (.inl w')
-          | .inr () =>
+          | .complete st' =>
+              let (tr1, c1) := recordOne t.transcript w env.clock
               let key ← (proto.T.output st' : ProbComp _)
               let t' : TSession proto := ⟨st', tr1, key, t.revealed⟩
               set { env with clock := c1, tSessions := env.tSessions.set sid t' }
@@ -93,14 +94,15 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
       let env ← get
       if env.challengeDone then pure (.inr ())
       else do
-          let (st', res) ← (proto.U.step env.challenge.state w : ProbComp _)
-          let (tr1, c1) := recordOne env.challenge.transcript w env.clock
-          match res with
-          | .inl (w', done) =>
+          match ← (proto.U.step env.challenge.state w : ProbComp _) with
+          | .reject => pure (.inr ())
+          | .acceptAndSend st' w' done =>
+              let (tr1, c1) := recordOne env.challenge.transcript w env.clock
               let (tr2, c2) := recordOne tr1 w' c1
               set { env with clock := c2, challenge := ⟨st', tr2⟩, challengeDone := done }
               pure (.inl w')
-          | .inr () =>
+          | .complete st' =>
+              let (tr1, c1) := recordOne env.challenge.transcript w env.clock
               set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeDone := true }
               pure (.inr ())
 
@@ -116,10 +118,10 @@ structure ChallengeResult (proto : Scheme K UK TK W) where
 
 def challengeSession {proto : Scheme K UK TK W} (A : Adversary proto) (uk : UK) (tk : TK) :
     ProbComp (ChallengeResult proto × (A.State × Env proto × TK)) := do
-  let (u0, opening) ← (proto.U.init uk : ProbComp _)
-  let (tr0, c0) := recordOpt ⟨[]⟩ opening 0
-  let init : Env proto := ⟨c0, ⟨u0, tr0⟩, false, []⟩
-  let (st, env) ← (simulateQ (withUnif (oracleImpl proto tk)) (A.challenge uk opening)).run init
+  let u0 ← (proto.U.init uk : ProbComp _)
+  let (tr0, c0) := recordOpt ⟨[]⟩ u0.opening 0
+  let init : Env proto := ⟨c0, ⟨u0.state, tr0⟩, false, []⟩
+  let (st, env) ← (simulateQ (withUnif (oracleImpl proto tk)) (A.challenge uk u0.opening)).run init
   let k0 ← (proto.U.output env.challenge.state : ProbComp _)
   pure (⟨k0.join, env.challenge.transcript, env.tSessions.map (·.transcript)⟩,
     (st, env, tk))

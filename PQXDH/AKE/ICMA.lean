@@ -31,41 +31,43 @@ def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (sendk : SendK) :
     QueryImpl (oracleSpec Msg W) (StateT (Env proto) ProbComp) := fun op =>
   match op with
   | .openSender m => do
-      let (st, opening) ← (proto.sender.init (sendk, m) : ProbComp _)
+      let r ← (proto.sender.init (sendk, m) : ProbComp _)
       let env ← get
-      let (tr, c') := recordOpt ⟨[]⟩ opening env.clock
+      let (tr, c') := recordOpt ⟨[]⟩ r.opening env.clock
       let sid := env.senders.length
-      let s0 : Session proto.sender.State W := ⟨st, tr⟩
+      let s0 : Session proto.sender.State W := ⟨r.state, tr⟩
       set { env with clock := c', senders := env.senders ++ [s0] }
-      pure (sid, opening)
+      pure (sid, r.opening)
   | .stepSender sid w => do
       let env ← get
       match env.senders[sid]? with
       | none => pure (.inr ())
       | some s =>
-        let (st', res) ← (proto.sender.step s.state w : ProbComp _)
-        let (tr1, c1) := recordOne s.transcript w env.clock
-        match res with
-        | .inl (w', _) =>
+        match ← (proto.sender.step s.state w : ProbComp _) with
+        | .reject => pure (.inr ())
+        | .acceptAndSend st' w' _ =>
+            let (tr1, c1) := recordOne s.transcript w env.clock
             let (tr2, c2) := recordOne tr1 w' c1
             set { env with clock := c2, senders := env.senders.set sid ⟨st', tr2⟩ }
             pure (.inl w')
-        | .inr out =>
+        | .complete st' =>
+            let (tr1, c1) := recordOne s.transcript w env.clock
             set { env with clock := c1, senders := env.senders.set sid ⟨st', tr1⟩ }
-            pure (.inr out)
+            pure (.inr ())
   | .stepChallenge w => do
       let env ← get
       match env.challengeOutput with
       | some m => pure (.inr m)
       | none => do
-          let (st', res) ← (proto.receiver.step env.challenge.state w : ProbComp _)
-          let (tr1, c1) := recordOne env.challenge.transcript w env.clock
-          match res with
-          | .inl (w', _) =>
+          match ← (proto.receiver.step env.challenge.state w : ProbComp _) with
+          | .reject => pure (.inr none)
+          | .acceptAndSend st' w' _ =>
+              let (tr1, c1) := recordOne env.challenge.transcript w env.clock
               let (tr2, c2) := recordOne tr1 w' c1
               set { env with clock := c2, challenge := ⟨st', tr2⟩ }
               pure (.inl w')
-          | .inr () =>
+          | .complete st' =>
+              let (tr1, c1) := recordOne env.challenge.transcript w env.clock
               let o ← (proto.receiver.output st' : ProbComp _)
               set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeOutput := some o.join }
               pure (.inr o.join)
@@ -80,8 +82,8 @@ structure Result (proto : MTP.Scheme Msg SendK RecvK W) where
 
 def challengeSession {proto : MTP.Scheme Msg SendK RecvK W} (A : Adversary proto)
     (sendk : SendK) (recvk : RecvK) : ProbComp (Result proto) := do
-  let (r0, _) ← (proto.receiver.init recvk : ProbComp _)
-  let init : Env proto := ⟨0, ⟨r0, ⟨[]⟩⟩, none, []⟩
+  let r0 ← (proto.receiver.init recvk : ProbComp _)
+  let init : Env proto := ⟨0, ⟨r0.state, ⟨[]⟩⟩, none, []⟩
   let (_, env) ← (simulateQ (withUnif (oracleImpl proto sendk)) (A.run recvk)).run init
   pure ⟨env.challengeOutput.join, env.challenge.transcript, env.senders.map (·.transcript)⟩
 
