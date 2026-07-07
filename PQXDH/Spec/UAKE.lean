@@ -542,6 +542,20 @@ theorem uakeInitiator_secure_pq
     obtain ⟨uk, tk⟩ := p
     exact probOutput_bind_bind_swap ($ᵗ Bool) (UAKE.challengeSession A uk tk) _ true
   rw [hExp]
+  have hbranch : ∀ (cr : UAKE.ChallengeResult (uakeInitiator P msg hasOPK))
+      (st : A.State × UAKE.Env (uakeInitiator P msg hasOPK) ×
+        RecipientParameters F G SS PQPK PQSK SPK SSK K),
+      (do let b ← $ᵗ Bool
+          if cr.K0.isNone then UAKE.finalize A st cr b none
+          else if !UAKE.isPingPong cr then pure true
+          else do let K1 ← some <$> ($ᵗ K); UAKE.finalize A st cr b K1) =
+        (if cr.K0.isNone then (do let b ← $ᵗ Bool; UAKE.finalize A st cr b none)
+         else if !UAKE.isPingPong cr then (do let _ ← $ᵗ Bool; (pure true : ProbComp Bool))
+         else (do let b ← $ᵗ Bool; let K1 ← some <$> ($ᵗ K); UAKE.finalize A st cr b K1)) := by
+    intro cr st
+    by_cases h1 : cr.K0.isNone = true <;> by_cases h2 : (!UAKE.isPingPong cr) = true <;>
+      simp [h1, h2]
+  simp only [hbranch]
   sorry
 
 theorem uakeInitiator_secure_dh
