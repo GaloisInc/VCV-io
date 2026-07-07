@@ -5,6 +5,7 @@ Authors: Ben Hamlin
 -/
 import PQXDH.Spec.Basic
 import PQXDH.AKE.UAKE.Basic
+import PQXDH.ToMathlib
 import VCVio.CryptoFoundations.HardnessAssumptions.DiffieHellman
 import VCVio.OracleComp.QueryTracking.QueryBound
 
@@ -646,6 +647,74 @@ private lemma simulateQ_publishForger
     OracleQuery.cont_query, id_map]
   rfl
 
+private lemma simulateQ_sigImpl_liftM {α : Type}
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (pk : SPK) (sk : SSK)
+    (oa : ProbComp α) :
+    simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      (liftM oa : OracleComp (unifSpec + ((G ⊕ PQPK) →ₒ S)) α) =
+    (liftM oa : WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp α) := by
+  rw [← OracleComp.liftComp_eq_liftM, QueryImpl.simulateQ_add_liftComp_left]
+  induction oa using OracleComp.inductionOn with
+  | pure x => simp [liftM_pure]
+  | query_bind t oa ih => simp [ih, liftM_bind]
+
+private lemma fst_run_liftM {α : Type} (oa : ProbComp α) :
+    Prod.fst <$> (liftM oa : WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp α).run = oa := by
+  rw [WriterT.liftM_def']
+  simp [WriterT.run, WriterT.mk, Functor.map_map, Function.comp]
+
+private lemma fst_run_signingOracle
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (pk : SPK) (sk : SSK)
+    (msg : G ⊕ PQPK) :
+    Prod.fst <$> (P.sig.signingOracle pk sk msg).run = P.sig.sign pk sk msg := by
+  have h := QueryImpl.fst_map_run_withLogging (m := ProbComp) (spec := (G ⊕ PQPK) →ₒ S)
+    (fun m => P.sig.sign pk sk m)
+    (liftM (OracleSpec.query (spec := (G ⊕ PQPK) →ₒ S) msg))
+  simpa [SignatureAlg.signingOracle, simulateQ_spec_query] using h
+
+private lemma fst_run_recipientForger_init [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (hasOPK : Bool)
+    (idn : RecipientIdentity F G SS SPK SSK K) (pk : SPK) (sk : SSK)
+    (hsig : idn.sigkB = (pk, sk)) :
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((recipientForger P hasOPK).init idn)).run =
+    (recipient P hasOPK).init idn := by
+  simp only [recipientForger, recipient, publish, simulateQ_bind, simulateQ_sigImpl_liftM,
+    simulateQ_publishForger, simulateQ_pure, WriterT.fst_map_run_bind', WriterT.fst_map_run_pure',
+    fst_run_liftM, fst_run_signingOracle, hsig]
+
+private lemma fst_run_recipientForger_step [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (hasOPK : Bool)
+    (st : RecipientParameters F G SS PQPK PQSK SPK SSK K ⊕ K)
+    (w : Message G PQPK CT S C IdC IdK) (pk : SPK) (sk : SSK) :
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((recipientForger P hasOPK).step st w)).run =
+    (recipient P hasOPK).step st w := by
+  cases st with
+  | inr SK =>
+    cases w <;>
+      simp only [recipientForger, recipient, simulateQ_pure, WriterT.fst_map_run_pure']
+  | inl p =>
+    cases w with
+    | initial im =>
+      simp only [recipientForger, recipient, simulateQ_bind, simulateQ_sigImpl_liftM,
+        WriterT.fst_map_run_bind', fst_run_liftM]
+      refine bind_congr fun r => ?_
+      cases r with
+      | none => simp only [simulateQ_pure, WriterT.fst_map_run_pure']
+      | some ctx =>
+        simp only [simulateQ_bind, simulateQ_sigImpl_liftM, simulateQ_pure,
+          WriterT.fst_map_run_bind', WriterT.fst_map_run_pure', fst_run_liftM]
+    | bundle b =>
+      simp only [recipientForger, recipient, simulateQ_pure, WriterT.fst_map_run_pure']
+    | confirmation c =>
+      simp only [recipientForger, recipient, simulateQ_pure, WriterT.fst_map_run_pure']
+
 def initiatorIdealForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
@@ -666,6 +735,56 @@ def initiatorIdealForger [Field F] [AddCommGroup G] [Module F G] [SampleableType
   output := fun st => match st with
     | .inr (.inr SK) => pure (some (some SK))
     | _ => pure none
+
+private lemma fst_run_initiatorIdealForger_init [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : InitiatorParameters F G SS SPK Msg K) (pk : SPK) (sk : SSK) :
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((initiatorIdealForger P).init p)).run =
+    (initiatorIdeal P).init p := by
+  simp only [initiatorIdealForger, initiatorIdeal, simulateQ_pure, WriterT.fst_map_run_pure']
+
+private lemma fst_run_initiatorIdealForger_step [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (st : InitiatorParameters F G SS SPK Msg K ⊕ SessionContext G PQPK Msg K ⊕ K)
+    (w : Message G PQPK CT S C IdC IdK) (pk : SPK) (sk : SSK) :
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((initiatorIdealForger P).step st w)).run =
+    (initiatorIdeal P).step st w := by
+  cases st with
+  | inl p =>
+    cases w with
+    | bundle b =>
+      simp only [initiatorIdealForger, initiatorIdeal, simulateQ_bind, simulateQ_sigImpl_liftM,
+        WriterT.fst_map_run_bind', fst_run_liftM]
+      refine bind_congr fun r => ?_
+      cases r with
+      | none => simp only [simulateQ_pure, WriterT.fst_map_run_pure']
+      | some x => simp only [simulateQ_pure, WriterT.fst_map_run_pure']
+    | initial im =>
+      simp only [initiatorIdealForger, initiatorIdeal, simulateQ_pure, WriterT.fst_map_run_pure']
+    | confirmation c =>
+      simp only [initiatorIdealForger, initiatorIdeal, simulateQ_pure, WriterT.fst_map_run_pure']
+  | inr rest =>
+    cases rest with
+    | inl ctx =>
+      cases w with
+      | confirmation conf =>
+        simp only [initiatorIdealForger, initiatorIdeal]
+        cases confirm P ctx conf with
+        | none => simp only [simulateQ_pure, WriterT.fst_map_run_pure']
+        | some SK => simp only [simulateQ_pure, WriterT.fst_map_run_pure']
+      | bundle b =>
+        simp only [initiatorIdealForger, initiatorIdeal, simulateQ_pure, WriterT.fst_map_run_pure']
+      | initial im =>
+        simp only [initiatorIdealForger, initiatorIdeal, simulateQ_pure, WriterT.fst_map_run_pure']
+    | inr SK =>
+      cases w <;>
+        simp only [initiatorIdealForger, initiatorIdeal, simulateQ_pure, WriterT.fst_map_run_pure']
 
 def schemeForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
