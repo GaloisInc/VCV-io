@@ -667,10 +667,11 @@ def _root_.AKE.UAKE.Adversary.toForger
   challenge := A.challenge
   post := A.post
 
-def extractForgery [Inhabited G] [Inhabited S]
+def extractForgery [Inhabited G] [Inhabited S] (guess : Bool)
     (tr : Transcript (Message G PQPK CT S C IdC IdK)) : (G ⊕ PQPK) × S :=
   match tr.entries.findSome? (fun e => match e.1 with
-    | .bundle b => some (EncodeEC b.spkB.1, b.spkSig)
+    | .bundle b =>
+        some (if guess then (EncodeKEM b.pqpkB.1, b.pqpkSig) else (EncodeEC b.spkB.1, b.spkSig))
     | _ => none) with
   | some fs => fs
   | none => (EncodeEC default, default)
@@ -689,9 +690,10 @@ def sigForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     let kdf ← liftM (($ᵗ (KeyMaterial G SS → K × K × K)) : ProbComp _)
     let uk : InitiatorParameters F G SS SPK Msg K := ⟨ikA, ikB.1, pk, msg, kdf⟩
     let tk : RecipientIdentity F G SS SPK SSK K := ⟨ikB, (pk, default), spkB, kdf⟩
+    let guess ← liftM ($ᵗ Bool)
     let (_, _, env, _) ← UAKE.challengeSession (proto := schemeForger P msg hasOPK)
       A.toForger uk tk
-    return extractForgery env.challenge.transcript
+    return extractForgery guess env.challenge.transcript
 
 end SignatureReduction
 
