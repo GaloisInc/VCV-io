@@ -463,6 +463,36 @@ def _root_.AKE.UAKE.Adversary.OpensAtMost {K UK TK W : Type} {proto : UAKE.Schem
   (∀ uk w, (A.challenge uk w).IsQueryBoundP (· matches Sum.inr .openT) q) ∧
     (∀ st k, (A.post st k).IsQueryBoundP (· matches Sum.inr .openT) q)
 
+private lemma finalize_true_add_false_eq_one {K UK TK W : Type}
+    [SampleableType K] [DecidableEq W] {proto : UAKE.Scheme K UK TK W}
+    (A : UAKE.Adversary proto) (st : A.State × UAKE.Env proto × TK)
+    (cr : UAKE.ChallengeResult proto) (K1 : Option K)
+    (hKb : cr.K0 = K1) :
+    Pr[= true | UAKE.finalize A st cr true K1] +
+      Pr[= true | UAKE.finalize A st cr false K1] = 1 := by
+  obtain ⟨aSt, env, tk⟩ := st
+  simp only [UAKE.finalize, hKb, ite_self]
+  rw [probOutput_bind_eq_tsum, probOutput_bind_eq_tsum, ← ENNReal.tsum_add]
+  rw [← HasEvalPMF.tsum_probOutput_eq_one
+    ((simulateQ (withUnif (UAKE.oracleImpl proto tk)) (A.post aSt K1)).run env)]
+  refine tsum_congr fun x => ?_
+  have hsum : Pr[= true | if UAKE.fullPingPong x.2 cr = true then ($ᵗ Bool)
+        else pure (x.1 == true)] +
+      Pr[= true | if UAKE.fullPingPong x.2 cr = true then ($ᵗ Bool)
+        else pure (x.1 == false)] = 1 := by
+    cases hfpp : UAKE.fullPingPong x.2 cr
+    · cases hx : x.1 <;> simp
+    · simp [probOutput_uniformSample, Fintype.card_bool, ENNReal.inv_two_add_inv_two]
+  rw [← mul_add, hsum, mul_one]
+
+private lemma finalize_none_half {K UK TK W : Type}
+    [SampleableType K] [DecidableEq W] {proto : UAKE.Scheme K UK TK W}
+    (A : UAKE.Adversary proto) (st : A.State × UAKE.Env proto × TK)
+    (cr : UAKE.ChallengeResult proto) (hK0 : cr.K0 = none) :
+    Pr[= true | do let b ← $ᵗ Bool; UAKE.finalize A st cr b none] = 1 / 2 := by
+  rw [probOutput_bind_uniformBool (fun b => UAKE.finalize A st cr b none) true,
+    finalize_true_add_false_eq_one A st cr none hK0]
+
 def kdfRoRExp [SampleableType (KeyMaterial G SS → K × K × K)]
     [SampleableType K] [Fintype K] [Inhabited K]
     (km : ProbComp (KeyMaterial G SS))
@@ -499,6 +529,19 @@ theorem uakeInitiator_secure_pq
       KdfHidesInput (K := K)
         (do let ss ← $ᵗ SS; pure (DH1, DH2, DH3, DH4, ss)) εkdf) :
     UAKE.advantage A ≤ εsig + q * (εkem + εaead + εkdf) := by
+  unfold UAKE.advantage
+  have hExp : Pr[= true | UAKE.Exp A] = Pr[= true | do
+      let (uk, tk) ← (uakeInitiator P msg hasOPK).setup
+      let (cr, st) ← UAKE.challengeSession A uk tk
+      let b ← $ᵗ Bool
+      if cr.K0.isNone then UAKE.finalize A st cr b none
+      else if !UAKE.isPingPong cr then pure true
+      else do let K1 ← some <$> ($ᵗ K); UAKE.finalize A st cr b K1] := by
+    unfold UAKE.Exp
+    refine probOutput_bind_congr' _ true (fun p => ?_)
+    obtain ⟨uk, tk⟩ := p
+    exact probOutput_bind_bind_swap ($ᵗ Bool) (UAKE.challengeSession A uk tk) _ true
+  rw [hExp]
   sorry
 
 theorem uakeInitiator_secure_dh
