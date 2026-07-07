@@ -5,5 +5,6 @@ import PQXDH.AKE.ICCA.OfAsymmEncAlg
 import PQXDH.AKE.ICMA
 import PQXDH.AKE.Theorems
 import PQXDH.AKE.UAKE.Basic
+import PQXDH.DH
 import PQXDH.Spec.Basic
 import PQXDH.Spec.UAKE
