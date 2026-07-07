@@ -4,11 +4,10 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Ben Hamlin
 -/
 import PQXDH.AEAD
-import PQXDH.AKE.UAKE.Basic
 import VCVio.CryptoFoundations.KeyEncapMech
 import VCVio.CryptoFoundations.SignatureAlg
 
-open OracleSpec OracleComp AKE
+open OracleSpec OracleComp
 
 namespace PQXDH
 
@@ -37,15 +36,16 @@ def DH [Field F] [AddCommGroup G] [Module F G] (sk : F) (pk : G) : G := sk • p
 
 structure InitiatorParameters (F G SS Msg K : Type) where
   ikA : G × F
+  ikB : G
   msg : Msg
-  kdf : KeyMaterial G SS → K
+  kdf : KeyMaterial G SS → K × K × K
 
 structure RecipientParameters (F G SS PQPK PQSK K : Type) where
   ikB : G × F
   spkB : G × F
   opkB : Option (G × F)
   pqpkB : PQPK × PQSK
-  kdf : KeyMaterial G SS → K
+  kdf : KeyMaterial G SS → K × K × K
 
 structure PreKeyBundle (G PQPK S IdC IdK : Type) where
   ikB : G
@@ -54,6 +54,7 @@ structure PreKeyBundle (G PQPK S IdC IdK : Type) where
   pqpkB : PQPK × IdK
   pqpkSig : S
   opkB : Option (G × IdC)
+  deriving DecidableEq
 
 structure InitialMessage (G CT C IdC IdK : Type) where
   ikA : G
@@ -63,18 +64,25 @@ structure InitialMessage (G CT C IdC IdK : Type) where
   idPQPK : IdK
   idOPK : Option IdC
   ctxt : C
+  deriving DecidableEq
+
+structure SessionContext (G PQPK Msg K : Type) where
+  sk : K
+  kb : K
+  ad : G × G × PQPK
+  msg : Msg
 
 def setup [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
-    [SampleableType (KeyMaterial G SS → K)]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
     (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
     ProbComp (InitiatorParameters F G SS Msg K × RecipientParameters F G SS PQPK PQSK K) := do
-  let kdf ← $ᵗ (KeyMaterial G SS → K)
+  let kdf ← $ᵗ (KeyMaterial G SS → K × K × K)
   let ikA ← dhKeygen P.gen
   let ikB ← dhKeygen P.gen
   let spkB ← dhKeygen P.gen
   let opkB ← if hasOPK then some <$> dhKeygen P.gen else pure none
   let pqpkB ← P.pqkem.keygen
-  return ({ ikA := ikA, msg := msg, kdf := kdf },
+  return ({ ikA := ikA, ikB := ikB.1, msg := msg, kdf := kdf },
     { ikB := ikB, spkB := spkB, opkB := opkB, pqpkB := pqpkB, kdf := kdf })
 
 def publish (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
@@ -89,11 +97,12 @@ def publish (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
            pqpkSig := pqpkSig
            opkB := p.opkB.map fun opk => (opk.1, P.idEC opk.1) }
 
-def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [DecidableEq G]
     (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
     (p : InitiatorParameters F G SS Msg K)
     (bundle : PreKeyBundle G PQPK S IdC IdK) :
-    ProbComp (Option (InitialMessage G CT C IdC IdK × K)) := do
+    ProbComp (Option (InitialMessage G CT C IdC IdK × SessionContext G PQPK Msg K)) := do
+  if bundle.ikB ≠ p.ikB then return none
   let okSPK ← P.sig.verify bundle.ikB (EncodeEC bundle.spkB.1) bundle.spkSig
   let okPQPK ← P.sig.verify bundle.ikB (EncodeKEM bundle.pqpkB.1) bundle.pqpkSig
   if !(okSPK && okPQPK) then return none
@@ -103,22 +112,23 @@ def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
   let DH2 := DH ekA.2 bundle.ikB
   let DH3 := DH ekA.2 bundle.spkB.1
   let DH4 := bundle.opkB.map fun opk => DH ekA.2 opk.1
-  let SK := p.kdf (DH1, DH2, DH3, DH4, SS)
+  let (SK, KA, KB) := p.kdf (DH1, DH2, DH3, DH4, SS)
   let AD := (p.ikA.1, bundle.ikB, bundle.pqpkB.1)
-  let ctxt ← P.aead.encrypt SK AD p.msg
+  let ctxt ← P.aead.encrypt KA AD p.msg
   return some ({ ikA := p.ikA.1
                  ekA := ekA.1
                  ct := CT
                  idSPK := bundle.spkB.2
                  idPQPK := bundle.pqpkB.2
                  idOPK := bundle.opkB.map Prod.snd
-                 ctxt := ctxt }, SK)
+                 ctxt := ctxt },
+    { sk := SK, kb := KB, ad := AD, msg := p.msg })
 
 def accept [Field F] [AddCommGroup G] [Module F G] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
     (p : RecipientParameters F G SS PQPK PQSK K)
     (msg : InitialMessage G CT C IdC IdK) :
-    ProbComp (Option (K × Msg)) := do
+    ProbComp (Option (SessionContext G PQPK Msg K)) := do
   if msg.idSPK ≠ P.idEC p.spkB.1 ∨ msg.idPQPK ≠ P.idKEM p.pqpkB.1 ∨
       msg.idOPK ≠ p.opkB.map (fun opk => P.idEC opk.1) then return none
   let some SS ← P.pqkem.decaps p.pqpkB.2 msg.ct | return none
@@ -126,67 +136,16 @@ def accept [Field F] [AddCommGroup G] [Module F G] [DecidableEq IdC] [DecidableE
   let DH2 := DH p.ikB.2 msg.ekA
   let DH3 := DH p.spkB.2 msg.ekA
   let DH4 := p.opkB.map fun opk => DH opk.2 msg.ekA
-  let SK := p.kdf (DH1, DH2, DH3, DH4, SS)
+  let (SK, KA, KB) := p.kdf (DH1, DH2, DH3, DH4, SS)
   let AD := (msg.ikA, p.ikB.1, p.pqpkB.1)
-  match P.aead.decrypt SK AD msg.ctxt with
-  | some m => return some (SK, m)
+  match P.aead.decrypt KA AD msg.ctxt with
+  | some m => return some { sk := SK, kb := KB, ad := AD, msg := m }
   | none => return none
 
-inductive Message (G PQPK CT S C IdC IdK : Type) where
-  | bundle : PreKeyBundle G PQPK S IdC IdK → Message G PQPK CT S C IdC IdK
-  | initial : InitialMessage G CT C IdC IdK → Message G PQPK CT S C IdC IdK
-
-def initiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) :
-    Party (InitiatorParameters F G SS Msg K) (Message G PQPK CT S C IdC IdK) (Option K) where
-  State := InitiatorParameters F G SS Msg K ⊕ K
-  init := fun p => pure (.waitForMsg (.inl p))
-  step := fun st w => match st, w with
-    | .inl p, .bundle b => do
-        match ← initiate P p b with
-        | some (im, SK) => pure (.acceptAndSend (.inr SK) (.initial im) true)
-        | none => pure .reject
-    | _, _ => pure .reject
-  output := fun st => match st with
-    | .inl _ => pure none
-    | .inr SK => pure (some (some SK))
-
-def recipient [Field F] [AddCommGroup G] [Module F G]
-    [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) :
-    Party (RecipientParameters F G SS PQPK PQSK K) (Message G PQPK CT S C IdC IdK) (Option K) where
-  State := RecipientParameters F G SS PQPK PQSK K ⊕ K
-  init := fun p => do
-    let bundle ← publish P p
-    pure (.speakFirst (.inl p) (.bundle bundle))
-  step := fun st w => match st, w with
-    | .inl p, .initial im => do
-        match ← accept P p im with
-        | some (SK, _) => pure (.complete (.inr SK))
-        | none => pure .reject
-    | _, _ => pure .reject
-  output := fun st => match st with
-    | .inl _ => pure none
-    | .inr SK => pure (some (some SK))
-
-def uakeInitiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
-    [SampleableType (KeyMaterial G SS → K)] [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
-    UAKE.Scheme K (InitiatorParameters F G SS Msg K) (RecipientParameters F G SS PQPK PQSK K)
-      (Message G PQPK CT S C IdC IdK) where
-  rounds := 1
-  setup := setup P msg hasOPK
-  U := initiator P
-  T := recipient P
-
-def uakeRecipient [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
-    [SampleableType (KeyMaterial G SS → K)] [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
-    UAKE.Scheme K (RecipientParameters F G SS PQPK PQSK K) (InitiatorParameters F G SS Msg K)
-      (Message G PQPK CT S C IdC IdK) where
-  rounds := 2
-  setup := Prod.swap <$> setup P msg hasOPK
-  U := recipient P
-  T := initiator P
+def confirm [DecidableEq Msg]
+    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
+    (ctx : SessionContext G PQPK Msg K) (conf : C) : Option K :=
+  if P.aead.decrypt ctx.kb ctx.ad conf = some ctx.msg then some ctx.sk
+  else none
 
 end PQXDH
