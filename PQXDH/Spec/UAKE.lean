@@ -579,6 +579,122 @@ def _root_.AKE.UAKE.Adversary.toIdeal
   challenge := A.challenge
   post := A.post
 
+section SignatureReduction
+
+def publishForger (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : RecipientParameters F G SS PQPK PQSK SPK SSK K) :
+    OracleComp (unifSpec + ((G ⊕ PQPK) →ₒ S)) (PreKeyBundle G PQPK S IdC IdK) := do
+  let spkSig ← liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+    (Sum.inr (EncodeEC p.spkB.1)))
+  let pqpkSig ← liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+    (Sum.inr (EncodeKEM p.pqpkB.1)))
+  return { ikB := p.ikB.1
+           spkB := (p.spkB.1, P.idEC p.spkB.1)
+           spkSig := spkSig
+           pqpkB := (p.pqpkB.1, P.idKEM p.pqpkB.1)
+           pqpkSig := pqpkSig
+           opkB := p.opkB.map fun opk => (opk.1, P.idEC opk.1) }
+
+def recipientForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (hasOPK : Bool) :
+    Party (OracleComp (unifSpec + ((G ⊕ PQPK) →ₒ S)))
+      (RecipientIdentity F G SS SPK SSK K) (Message G PQPK CT S C IdC IdK) (Option K) where
+  State := RecipientParameters F G SS PQPK PQSK SPK SSK K ⊕ K
+  init := fun idn => do
+    let opkB ← liftM (genOPK P.gen hasOPK)
+    let pqpkB ← liftM P.pqkem.keygen
+    let p : RecipientParameters F G SS PQPK PQSK SPK SSK K :=
+      { ikB := idn.ikB, sigkB := idn.sigkB, spkB := idn.spkB,
+        opkB := opkB, pqpkB := pqpkB, kdf := idn.kdf }
+    let bundle ← publishForger P p
+    pure (.speakFirst (.inl p) (.bundle bundle))
+  step := fun st w => match st, w with
+    | .inl p, .initial im => do
+        match ← liftM (accept P p im) with
+        | some ctx => do
+            let conf ← liftM (P.aead.encrypt ctx.kb ctx.ad ctx.msg)
+            pure (.acceptAndSend (.inr ctx.sk) (.confirmation conf) true)
+        | none => pure .reject
+    | _, _ => pure .reject
+  output := fun st => match st with
+    | .inl _ => pure none
+    | .inr SK => pure (some (some SK))
+
+def initiatorIdealForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
+    Party (OracleComp (unifSpec + ((G ⊕ PQPK) →ₒ S)))
+      (InitiatorParameters F G SS SPK Msg K) (Message G PQPK CT S C IdC IdK) (Option K) where
+  State := InitiatorParameters F G SS SPK Msg K ⊕ SessionContext G PQPK Msg K ⊕ K
+  init := fun p => pure (.waitForMsg (.inl p))
+  step := fun st w => match st, w with
+    | .inl p, .bundle b => do
+        match ← liftM (initiateIdeal P p b) with
+        | some (im, ctx) => pure (.acceptAndSend (.inr (.inl ctx)) (.initial im) false)
+        | none => pure .reject
+    | .inr (.inl ctx), .confirmation conf =>
+        match confirm P ctx conf with
+        | some SK => pure (.complete (.inr (.inr SK)))
+        | none => pure .reject
+    | _, _ => pure .reject
+  output := fun st => match st with
+    | .inr (.inr SK) => pure (some (some SK))
+    | _ => pure none
+
+def schemeForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    UAKE.Scheme (OracleComp (unifSpec + ((G ⊕ PQPK) →ₒ S))) K
+      (InitiatorParameters F G SS SPK Msg K) (RecipientIdentity F G SS SPK SSK K)
+      (Message G PQPK CT S C IdC IdK) where
+  rounds := 3
+  setup := liftM (setup P msg)
+  U := initiatorIdealForger P
+  T := recipientForger P hasOPK
+
+def _root_.AKE.UAKE.Adversary.toForger
+    [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK} {msg : Msg} {hasOPK : Bool}
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    UAKE.Adversary (schemeForger P msg hasOPK) where
+  State := A.State
+  challenge := A.challenge
+  post := A.post
+
+def extractForgery [Inhabited G] [Inhabited S]
+    (tr : Transcript (Message G PQPK CT S C IdC IdK)) : (G ⊕ PQPK) × S :=
+  match tr.entries.findSome? (fun e => match e.1 with
+    | .bundle b => some (EncodeEC b.spkB.1, b.spkSig)
+    | _ => none) with
+  | some fs => fs
+  | none => (EncodeEC default, default)
+
+def sigForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) : P.sig.unforgeableAdv where
+  main := fun pk => do
+    let ikA ← liftM (dhKeygen P.gen)
+    let ikB ← liftM (dhKeygen P.gen)
+    let spkB ← liftM (dhKeygen P.gen)
+    let kdf ← liftM (($ᵗ (KeyMaterial G SS → K × K × K)) : ProbComp _)
+    let uk : InitiatorParameters F G SS SPK Msg K := ⟨ikA, ikB.1, pk, msg, kdf⟩
+    let tk : RecipientIdentity F G SS SPK SSK K := ⟨ikB, (pk, default), spkB, kdf⟩
+    let (_, _, env, _) ← UAKE.challengeSession (proto := schemeForger P msg hasOPK)
+      A.toForger uk tk
+    return extractForgery env.challenge.transcript
+
+end SignatureReduction
+
 theorem uakeInitiator_secure_pq
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
