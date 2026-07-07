@@ -52,6 +52,13 @@ def recipient [Field F] [AddCommGroup G] [Module F G]
     | .inl p, .initial im => do
         match ← accept P p im with
         | some ctx => do
+            /- DEVIATION FROM SPEC: UAKE requires T to speak last, sending an
+              authenticated message if the exchange was accepted. This prevents
+              a trivial attack where the attacker simply refrains from sending
+              Alice's last message, so that ping-pong is vacuously false. We
+              have Bob send the final message of the exchange here in order to
+              satisfy this, whereas the spec stops at Bob receiving the
+              message. -/
             let conf ← P.aead.encrypt ctx.kb ctx.ad ctx.msg
             pure (.acceptAndSend (.inr ctx.sk) (.confirmation conf) true)
         | none => pure .reject

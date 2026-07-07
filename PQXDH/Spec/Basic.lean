@@ -36,6 +36,9 @@ def DH [Field F] [AddCommGroup G] [Module F G] (sk : F) (pk : G) : G := sk • p
 
 structure InitiatorParameters (F G SS Msg K : Type) where
   ikA : G × F
+  /- We include Bob's identity public key here in order to pin Bob's
+    identity to Alice. This models the out-of-band key fingerprinting from Sec.
+    4.1 of the spec. -/
   ikB : G
   msg : Msg
   kdf : KeyMaterial G SS → K × K × K
@@ -112,6 +115,13 @@ def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [Decidab
   let DH2 := DH ekA.2 bundle.ikB
   let DH3 := DH ekA.2 bundle.spkB.1
   let DH4 := bundle.opkB.map fun opk => DH ekA.2 opk.1
+  /- DEVIATION FROM SPEC: It seems necessary to assume that the keys used for
+    the AEAD encrypted ciphertexts are independent of SK and of each other.
+    Here, we make them distinct outputs of the KDF. Using SK to key the AEAD
+    and revealing the message appears to be incompatible with key
+    indistinguishability, since an attacker can distinguish the key from random
+    by using the candidate key to decrypt the initial message and checking
+    whether it succeeds. -/
   let (SK, KA, KB) := p.kdf (DH1, DH2, DH3, DH4, SS)
   let AD := (p.ikA.1, bundle.ikB, bundle.pqpkB.1)
   let ctxt ← P.aead.encrypt KA AD p.msg
