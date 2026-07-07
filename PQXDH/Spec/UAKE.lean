@@ -9,6 +9,7 @@ import VCVio.CryptoFoundations.HardnessAssumptions.DiffieHellman
 import VCVio.OracleComp.QueryTracking.QueryBound
 
 open OracleSpec OracleComp AKE
+open scoped ENNReal
 
 namespace PQXDH
 
@@ -510,6 +511,21 @@ def KdfHidesInput [SampleableType (KeyMaterial G SS → K × K × K)]
     |(Pr[= true | kdfRoRExp km D true]).toReal -
       (Pr[= true | kdfRoRExp km D false]).toReal| ≤ ε
 
+private lemma probOutput_bind_if_true_uniformBool {α : Type} (m : ProbComp α) (c : α → Bool) :
+    Pr[= true | do let x ← m; if c x then (pure true : ProbComp Bool) else $ᵗ Bool] =
+      1 / 2 + Pr[= true | do let x ← m; pure (c x)] / 2 := by
+  rw [probOutput_bind_eq_tsum, probOutput_bind_eq_tsum]
+  conv_rhs => rw [show (1 : ℝ≥0∞) / 2 = (∑' x, Pr[= x | m]) / 2 from by
+    rw [HasEvalPMF.tsum_probOutput_eq_one]]
+  simp only [div_eq_mul_inv]
+  rw [← ENNReal.tsum_mul_right, ← ENNReal.tsum_mul_right, ← ENNReal.tsum_add]
+  refine tsum_congr fun x => ?_
+  cases hcx : c x
+  · simp [probOutput_uniformSample, Fintype.card_bool]
+  · have hp : Pr[= x | m] = Pr[= x | m] * 2⁻¹ + Pr[= x | m] * 2⁻¹ := by
+      rw [← mul_add, ENNReal.inv_two_add_inv_two, mul_one]
+    simpa [probOutput_uniformSample, Fintype.card_bool] using hp
+
 theorem uakeInitiator_secure_pq
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
@@ -556,7 +572,34 @@ theorem uakeInitiator_secure_pq
     by_cases h1 : cr.K0.isNone = true <;> by_cases h2 : (!UAKE.isPingPong cr) = true <;>
       simp [h1, h2]
   simp only [hbranch]
-  sorry
+  set jt := (uakeInitiator P msg hasOPK).setup >>= fun ut =>
+    UAKE.challengeSession A ut.1 ut.2 with hjt
+  set c : UAKE.ChallengeResult (uakeInitiator P msg hasOPK) ×
+      (A.State × UAKE.Env (uakeInitiator P msg hasOPK) ×
+        RecipientParameters F G SS PQPK PQSK SPK SSK K) → Bool :=
+    fun crst => !crst.1.K0.isNone && !UAKE.isPingPong crst.1 with hc
+  have hideal := probOutput_bind_if_true_uniformBool jt c
+  refine le_trans (abs_sub_le _
+    (Pr[= true | jt >>= fun crst => if c crst then (pure true : ProbComp Bool)
+      else $ᵗ Bool]).toReal _) ?_
+  rw [add_comm εsig]
+  refine add_le_add ?hconf ?hauth
+  case hconf =>
+    -- confidentiality reduction: the real game and the ideal game differ only in the
+    -- ping-pong branch (real session key vs. uniform), bounded by the KEM/KDF/AEAD hops.
+    sorry
+  case hauth =>
+    rw [hideal]
+    set pA := Pr[= true | jt >>= fun crst => pure (c crst)] with hpA
+    have hpA_ne : pA ≠ ⊤ := probOutput_ne_top
+    have htoReal : (1 / 2 + pA / 2 : ℝ≥0∞).toReal = 1 / 2 + pA.toReal / 2 := by
+      rw [ENNReal.toReal_add (by simp) (ENNReal.div_ne_top hpA_ne (by simp)),
+        ENNReal.toReal_div, ENNReal.toReal_div]
+      simp
+    rw [htoReal, add_sub_cancel_left, abs_of_nonneg (by positivity)]
+    -- authenticity reduction: P[authBreak] ≤ 2·εsig via signature unforgeability.
+    have hAuth : pA.toReal ≤ 2 * εsig := sorry
+    linarith
 
 theorem uakeInitiator_secure_dh
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
