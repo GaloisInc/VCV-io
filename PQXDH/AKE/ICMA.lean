@@ -11,7 +11,7 @@ namespace AKE.ICMA
 
 variable {Msg SendK RecvK W : Type}
 
-structure Env (proto : MTP.Scheme Msg SendK RecvK W) where
+structure Env (proto : MTP.Scheme ProbComp Msg SendK RecvK W) where
   clock : ℕ
   challenge : Session proto.receiver.State W
   challengeOutput : Option (Option Msg)
@@ -27,7 +27,7 @@ def oracleSpec (Msg W : Type) : OracleSpec (Op Msg W)
   | .stepSender _ _ => W ⊕ Unit
   | .stepChallenge _ => W ⊕ Option Msg
 
-def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (sendk : SendK) :
+def oracleImpl (proto : MTP.Scheme ProbComp Msg SendK RecvK W) (sendk : SendK) :
     QueryImpl (oracleSpec Msg W) (StateT (Env proto) ProbComp) := fun op =>
   match op with
   | .openSender m => do
@@ -72,32 +72,33 @@ def oracleImpl (proto : MTP.Scheme Msg SendK RecvK W) (sendk : SendK) :
               set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeOutput := some o.join }
               pure (.inr o.join)
 
-structure Adversary (proto : MTP.Scheme Msg SendK RecvK W) where
+structure Adversary (proto : MTP.Scheme ProbComp Msg SendK RecvK W) where
   run : RecvK → OracleComp (unifSpec + oracleSpec Msg W) Unit
 
-structure Result (proto : MTP.Scheme Msg SendK RecvK W) where
+structure Result (proto : MTP.Scheme ProbComp Msg SendK RecvK W) where
   mstar : Option Msg
   challengeTr : Transcript W
   oracleTrs : List (Transcript W)
 
-def challengeSession {proto : MTP.Scheme Msg SendK RecvK W} (A : Adversary proto)
+def challengeSession {proto : MTP.Scheme ProbComp Msg SendK RecvK W} (A : Adversary proto)
     (sendk : SendK) (recvk : RecvK) : ProbComp (Result proto) := do
   let r0 ← (proto.receiver.init recvk : ProbComp _)
   let init : Env proto := ⟨0, ⟨r0.state, ⟨[]⟩⟩, none, []⟩
   let (_, env) ← (simulateQ (withUnif (oracleImpl proto sendk)) (A.run recvk)).run init
   pure ⟨env.challengeOutput.join, env.challenge.transcript, env.senders.map (·.transcript)⟩
 
-def isPingPong [DecidableEq W] {proto : MTP.Scheme Msg SendK RecvK W} (r : Result proto) : Bool :=
+def isPingPong [DecidableEq W] {proto : MTP.Scheme ProbComp Msg SendK RecvK W}
+    (r : Result proto) : Bool :=
   pingPong (proto.rounds % 2 == 1) r.oracleTrs r.challengeTr
 
-def Exp [DecidableEq W] {proto : MTP.Scheme Msg SendK RecvK W} (A : Adversary proto) :
+def Exp [DecidableEq W] {proto : MTP.Scheme ProbComp Msg SendK RecvK W} (A : Adversary proto) :
     ProbComp Bool := do
   let (sendk, recvk) ← proto.setup
   let r ← challengeSession A sendk recvk
   if r.mstar.isSome && !isPingPong r then return true
   else return false
 
-noncomputable def advantage [DecidableEq W] {proto : MTP.Scheme Msg SendK RecvK W}
+noncomputable def advantage [DecidableEq W] {proto : MTP.Scheme ProbComp Msg SendK RecvK W}
     (A : Adversary proto) : ℝ :=
   (Pr[= true | Exp A]).toReal
 

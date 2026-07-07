@@ -34,18 +34,18 @@ inductive StepResult (State W : Type)
 
 variable {Msg SendK RecvK W : Type}
 
-structure Party (In W Out : Type) where
+structure Party (m : Type → Type) (In W Out : Type) where
   State : Type
-  init : In → ProbComp (InitResult State W)
-  step : State → W → ProbComp (StepResult State W)
-  output : State → ProbComp (Option Out)
+  init : In → m (InitResult State W)
+  step : State → W → m (StepResult State W)
+  output : State → m (Option Out)
 
 namespace Party
 
-def RecoveryDeterministic {In W Out : Type} (P : Party In W Out) : Prop :=
+def RecoveryDeterministic {In W Out : Type} (P : Party ProbComp In W Out) : Prop :=
   ∀ st : P.State, ∃ m, P.output st = pure m
 
-def OutputsAtCompletion {In W Out : Type} (P : Party In W Out) : Prop :=
+def OutputsAtCompletion {In W Out : Type} (P : Party ProbComp In W Out) : Prop :=
   (∀ i r, r ∈ support (P.init i) → ∀ m ∈ support (P.output r.state), m = none) ∧
     (∀ st w st' w' b, StepResult.acceptAndSend st' w' b ∈ support (P.step st w) →
       ∀ m ∈ support (P.output st'), m = none)
@@ -102,15 +102,16 @@ def recordOpt (tr : Transcript W) : Option W → ℕ → Transcript W × ℕ
   | none, clock => (tr, clock)
   | some w, clock => recordOne tr w clock
 
-def withUnif {ι : Type} {customSpec : OracleSpec ι} {σ : Type}
-    (customImpl : QueryImpl customSpec (StateT σ ProbComp)) :
-    QueryImpl (unifSpec + customSpec) (StateT σ ProbComp) :=
-  (HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget (StateT σ ProbComp)
+def withUnif {m : Type → Type} [Monad m] [MonadLiftT ProbComp m]
+    {ι : Type} {customSpec : OracleSpec ι} {σ : Type}
+    (customImpl : QueryImpl customSpec (StateT σ m)) :
+    QueryImpl (unifSpec + customSpec) (StateT σ m) :=
+  (HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget (StateT σ m)
     + customImpl
 
-def runHonestLoop {InP OutP InQ OutQ : Type}
-    (P : Party InP W OutP) (Q : Party InQ W OutQ) :
-    ℕ → P.State → Q.State → W → Bool → ProbComp (P.State × Q.State)
+def runHonestLoop {m : Type → Type} [Monad m] {InP OutP InQ OutQ : Type}
+    (P : Party m InP W OutP) (Q : Party m InQ W OutQ) :
+    ℕ → P.State → Q.State → W → Bool → m (P.State × Q.State)
   | 0, pState, qState, _, _ => pure (pState, qState)
   | fuel + 1, pState, qState, w, true => do
       match ← Q.step qState w with
@@ -123,9 +124,9 @@ def runHonestLoop {InP OutP InQ OutQ : Type}
       | .complete pState' => pure (pState', qState)
       | .reject => pure (pState, qState)
 
-def runHonest {InP OutP InQ OutQ : Type}
-    (P : Party InP W OutP) (Q : Party InQ W OutQ) (inP : InP) (inQ : InQ) (fuel : ℕ) :
-    ProbComp (Option OutP × Option OutQ) := do
+def runHonest {m : Type → Type} [Monad m] {InP OutP InQ OutQ : Type}
+    (P : Party m InP W OutP) (Q : Party m InQ W OutQ) (inP : InP) (inQ : InQ) (fuel : ℕ) :
+    m (Option OutP × Option OutQ) := do
   let pInit ← P.init inP
   let qInit ← Q.init inQ
   let (pState', qState') ← match pInit.opening, qInit.opening with
@@ -138,19 +139,20 @@ def runHonest {InP OutP InQ OutQ : Type}
 
 namespace MTP
 
-structure Scheme (Msg SendK RecvK W : Type) where
+structure Scheme (m : Type → Type) (Msg SendK RecvK W : Type) where
   rounds : ℕ
-  setup : ProbComp (SendK × RecvK)
-  sender : Party (SendK × Msg) W Unit
-  receiver : Party RecvK W (Option Msg)
+  setup : m (SendK × RecvK)
+  sender : Party m (SendK × Msg) W Unit
+  receiver : Party m RecvK W (Option Msg)
 
-def CorrectExp [DecidableEq Msg] (proto : Scheme Msg SendK RecvK W) (m : Msg) : ProbComp Bool := do
+def CorrectExp [DecidableEq Msg] (proto : Scheme ProbComp Msg SendK RecvK W) (msg : Msg) :
+    ProbComp Bool := do
   let (sendk, recvk) ← proto.setup
-  let (_, rOut) ← runHonest proto.sender proto.receiver (sendk, m) recvk (proto.rounds + 1)
-  return decide (rOut.join = some m)
+  let (_, rOut) ← runHonest proto.sender proto.receiver (sendk, msg) recvk (proto.rounds + 1)
+  return decide (rOut.join = some msg)
 
-def PerfectlyCorrect [DecidableEq Msg] (proto : Scheme Msg SendK RecvK W) : Prop :=
-  ∀ m : Msg, Pr[= true | CorrectExp proto m] = 1
+def PerfectlyCorrect [DecidableEq Msg] (proto : Scheme ProbComp Msg SendK RecvK W) : Prop :=
+  ∀ msg : Msg, Pr[= true | CorrectExp proto msg] = 1
 
 end MTP
 

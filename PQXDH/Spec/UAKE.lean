@@ -24,7 +24,8 @@ inductive Message (G PQPK CT S C IdC IdK : Type) where
 def initiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [DecidableEq Msg]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
-    Party (InitiatorParameters F G SS SPK Msg K) (Message G PQPK CT S C IdC IdK) (Option K) where
+    Party ProbComp (InitiatorParameters F G SS SPK Msg K)
+      (Message G PQPK CT S C IdC IdK) (Option K) where
   State := InitiatorParameters F G SS SPK Msg K ⊕ SessionContext G PQPK Msg K ⊕ K
   init := fun p => pure (.waitForMsg (.inl p))
   step := fun st w => match st, w with
@@ -44,7 +45,7 @@ def initiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
 def recipient [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (hasOPK : Bool) :
-    Party (RecipientIdentity F G SS SPK SSK K)
+    Party ProbComp (RecipientIdentity F G SS SPK SSK K)
       (Message G PQPK CT S C IdC IdK) (Option K) where
   State := RecipientParameters F G SS PQPK PQSK SPK SSK K ⊕ K
   init := fun idn => do
@@ -78,7 +79,7 @@ def uakeInitiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
     [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
-    UAKE.Scheme K (InitiatorParameters F G SS SPK Msg K)
+    UAKE.Scheme ProbComp K (InitiatorParameters F G SS SPK Msg K)
       (RecipientIdentity F G SS SPK SSK K)
       (Message G PQPK CT S C IdC IdK) where
   rounds := 3
@@ -90,7 +91,7 @@ def uakeRecipient [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
     [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
-    UAKE.Scheme K (RecipientIdentity F G SS SPK SSK K)
+    UAKE.Scheme ProbComp K (RecipientIdentity F G SS SPK SSK K)
       (InitiatorParameters F G SS SPK Msg K)
       (Message G PQPK CT S C IdC IdK) where
   rounds := 4
@@ -445,13 +446,14 @@ theorem uakeRecipient_perfectlyCorrect
   subst huk htk
   exact run_support_recipient P hasOPK hsig hkem haead msg hikA hikB hsigkB hspkB hrun
 
-def _root_.AKE.UAKE.Adversary.OpensAtMost {K UK TK W : Type} {proto : UAKE.Scheme K UK TK W}
+def _root_.AKE.UAKE.Adversary.OpensAtMost {K UK TK W : Type}
+    {proto : UAKE.Scheme ProbComp K UK TK W}
     (A : UAKE.Adversary proto) (q : ℕ) : Prop :=
   (∀ uk w, (A.challenge uk w).IsQueryBoundP (· matches Sum.inr .openT) q) ∧
     (∀ st k, (A.post st k).IsQueryBoundP (· matches Sum.inr .openT) q)
 
 private lemma finalize_true_add_false_eq_one {K UK TK W : Type}
-    [SampleableType K] [DecidableEq W] {proto : UAKE.Scheme K UK TK W}
+    [SampleableType K] [DecidableEq W] {proto : UAKE.Scheme ProbComp K UK TK W}
     (A : UAKE.Adversary proto) (st : A.State × UAKE.Env proto × TK)
     (cr : UAKE.ChallengeResult proto) (K1 : Option K)
     (hKb : cr.K0 = K1) :
@@ -473,7 +475,7 @@ private lemma finalize_true_add_false_eq_one {K UK TK W : Type}
   rw [← mul_add, hsum, mul_one]
 
 private lemma finalize_none_half {K UK TK W : Type}
-    [SampleableType K] [DecidableEq W] {proto : UAKE.Scheme K UK TK W}
+    [SampleableType K] [DecidableEq W] {proto : UAKE.Scheme ProbComp K UK TK W}
     (A : UAKE.Adversary proto) (st : A.State × UAKE.Env proto × TK)
     (cr : UAKE.ChallengeResult proto) (hK0 : cr.K0 = none) :
     Pr[= true | do let b ← $ᵗ Bool; UAKE.finalize A st cr b none] = 1 / 2 := by
@@ -534,7 +536,8 @@ def initiateIdeal [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [De
 def initiatorIdeal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
-    Party (InitiatorParameters F G SS SPK Msg K) (Message G PQPK CT S C IdC IdK) (Option K) where
+    Party ProbComp (InitiatorParameters F G SS SPK Msg K)
+      (Message G PQPK CT S C IdC IdK) (Option K) where
   State := InitiatorParameters F G SS SPK Msg K ⊕ SessionContext G PQPK Msg K ⊕ K
   init := fun p => pure (.waitForMsg (.inl p))
   step := fun st w => match st, w with
@@ -556,7 +559,7 @@ def uakeInitiatorIdeal [Field F] [AddCommGroup G] [Module F G] [SampleableType F
     [SampleableType K] [Fintype K] [Inhabited K]
     [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
-    UAKE.Scheme K (InitiatorParameters F G SS SPK Msg K)
+    UAKE.Scheme ProbComp K (InitiatorParameters F G SS SPK Msg K)
       (RecipientIdentity F G SS SPK SSK K)
       (Message G PQPK CT S C IdC IdK) where
   rounds := 3

@@ -11,27 +11,27 @@ namespace AKE.UAKE
 
 variable {K UK TK W : Type}
 
-structure Scheme (K UK TK W : Type) where
+structure Scheme (m : Type → Type) (K UK TK W : Type) where
   rounds : ℕ
-  setup : ProbComp (UK × TK)
-  U : Party UK W (Option K)
-  T : Party TK W (Option K)
+  setup : m (UK × TK)
+  U : Party m UK W (Option K)
+  T : Party m TK W (Option K)
 
-def CorrectExp [DecidableEq K] (proto : Scheme K UK TK W) : ProbComp Bool := do
+def CorrectExp [DecidableEq K] (proto : Scheme ProbComp K UK TK W) : ProbComp Bool := do
   let (uk, tk) ← proto.setup
   let (uOut, tOut) ← runHonest proto.U proto.T uk tk (proto.rounds + 1)
   return decide (uOut.join = none ∨ tOut.join = none ∨ uOut.join = tOut.join)
 
-def PerfectlyCorrect [DecidableEq K] (proto : Scheme K UK TK W) : Prop :=
+def PerfectlyCorrect [DecidableEq K] (proto : Scheme ProbComp K UK TK W) : Prop :=
   Pr[= true | CorrectExp proto] = 1
 
-structure TSession (proto : Scheme K UK TK W) where
+structure TSession {m : Type → Type} (proto : Scheme m K UK TK W) where
   state : proto.T.State
   transcript : Transcript W
   key : Option (Option K)
   revealed : Bool
 
-structure Env (proto : Scheme K UK TK W) where
+structure Env {m : Type → Type} (proto : Scheme m K UK TK W) where
   clock : ℕ
   challenge : Session proto.U.State W
   challengeDone : Bool
@@ -49,11 +49,11 @@ def oracleSpec (K W : Type) : OracleSpec (Op W)
   | .revealT _ => Option K
   | .stepChallenge _ => W ⊕ Unit
 
-def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
-    QueryImpl (oracleSpec K W) (StateT (Env proto) ProbComp) := fun op =>
+def oracleImpl {m : Type → Type} [Monad m] (proto : Scheme m K UK TK W) (tk : TK) :
+    QueryImpl (oracleSpec K W) (StateT (Env proto) m) := fun op =>
   match op with
   | .openT => do
-      let r ← (proto.T.init tk : ProbComp _)
+      let r ← (proto.T.init tk : m _)
       let env ← get
       let (tr, c') := recordOpt ⟨[]⟩ r.opening env.clock
       let sid := env.tSessions.length
@@ -68,18 +68,18 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
         match t.key with
         | some _ => pure (.inr ())
         | none => do
-          match ← (proto.T.step t.state w : ProbComp _) with
+          match ← (proto.T.step t.state w : m _) with
           | .reject => pure (.inr ())
           | .acceptAndSend st' w' done =>
               let (tr1, c1) := recordOne t.transcript w env.clock
               let (tr2, c2) := recordOne tr1 w' c1
-              let key ← if done then (proto.T.output st' : ProbComp _) else pure none
+              let key ← if done then (proto.T.output st' : m _) else pure none
               let t' : TSession proto := ⟨st', tr2, key, t.revealed⟩
               set { env with clock := c2, tSessions := env.tSessions.set sid t' }
               pure (.inl w')
           | .complete st' =>
               let (tr1, c1) := recordOne t.transcript w env.clock
-              let key ← (proto.T.output st' : ProbComp _)
+              let key ← (proto.T.output st' : m _)
               let t' : TSession proto := ⟨st', tr1, key, t.revealed⟩
               set { env with clock := c1, tSessions := env.tSessions.set sid t' }
               pure (.inr ())
@@ -94,7 +94,7 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
       let env ← get
       if env.challengeDone then pure (.inr ())
       else do
-          match ← (proto.U.step env.challenge.state w : ProbComp _) with
+          match ← (proto.U.step env.challenge.state w : m _) with
           | .reject => pure (.inr ())
           | .acceptAndSend st' w' done =>
               let (tr1, c1) := recordOne env.challenge.transcript w env.clock
@@ -106,35 +106,37 @@ def oracleImpl (proto : Scheme K UK TK W) (tk : TK) :
               set { env with clock := c1, challenge := ⟨st', tr1⟩, challengeDone := true }
               pure (.inr ())
 
-structure Adversary (proto : Scheme K UK TK W) where
+structure Adversary {m : Type → Type} (proto : Scheme m K UK TK W) where
   State : Type
   challenge : UK → Option W → OracleComp (unifSpec + oracleSpec K W) State
   post : State → Option K → OracleComp (unifSpec + oracleSpec K W) Bool
 
-structure ChallengeResult (proto : Scheme K UK TK W) where
+structure ChallengeResult {m : Type → Type} (proto : Scheme m K UK TK W) where
   K0 : Option K
   challengeTr : Transcript W
   oracleTrs : List (Transcript W)
 
-def challengeSession {proto : Scheme K UK TK W} (A : Adversary proto) (uk : UK) (tk : TK) :
-    ProbComp (ChallengeResult proto × (A.State × Env proto × TK)) := do
-  let u0 ← (proto.U.init uk : ProbComp _)
+def challengeSession {m : Type → Type} [Monad m] [MonadLiftT ProbComp m]
+    {proto : Scheme m K UK TK W} (A : Adversary proto) (uk : UK) (tk : TK) :
+    m (ChallengeResult proto × (A.State × Env proto × TK)) := do
+  let u0 ← (proto.U.init uk : m _)
   let (tr0, c0) := recordOpt ⟨[]⟩ u0.opening 0
   let init : Env proto := ⟨c0, ⟨u0.state, tr0⟩, false, []⟩
   let (st, env) ← (simulateQ (withUnif (oracleImpl proto tk)) (A.challenge uk u0.opening)).run init
-  let k0 ← (proto.U.output env.challenge.state : ProbComp _)
+  let k0 ← (proto.U.output env.challenge.state : m _)
   pure (⟨k0.join, env.challenge.transcript, env.tSessions.map (·.transcript)⟩,
     (st, env, tk))
 
-def isPingPong [DecidableEq W] {proto : Scheme K UK TK W} (cr : ChallengeResult proto) : Bool :=
+def isPingPong [DecidableEq W] {m : Type → Type} {proto : Scheme m K UK TK W}
+    (cr : ChallengeResult proto) : Bool :=
   pingPong (proto.rounds % 2 == 1) cr.oracleTrs cr.challengeTr
 
-def fullPingPong [DecidableEq W] {proto : Scheme K UK TK W}
+def fullPingPong [DecidableEq W] {m : Type → Type} {proto : Scheme m K UK TK W}
     (env : Env proto) (cr : ChallengeResult proto) : Bool :=
   pingPong (proto.rounds % 2 == 1)
     ((env.tSessions.filter (·.revealed)).map (·.transcript)) cr.challengeTr
 
-def finalize [DecidableEq W] {proto : Scheme K UK TK W} (A : Adversary proto)
+def finalize [DecidableEq W] {proto : Scheme ProbComp K UK TK W} (A : Adversary proto)
     (st : A.State × Env proto × TK) (cr : ChallengeResult proto) (b : Bool) (K1 : Option K) :
     ProbComp Bool := do
   let (aSt, env, tk) := st
@@ -143,8 +145,8 @@ def finalize [DecidableEq W] {proto : Scheme K UK TK W} (A : Adversary proto)
   if fullPingPong env' cr then $ᵗ Bool
   else pure (b' == b)
 
-def Exp [SampleableType K] [DecidableEq W] {proto : Scheme K UK TK W} (A : Adversary proto) :
-    ProbComp Bool := do
+def Exp [SampleableType K] [DecidableEq W] {proto : Scheme ProbComp K UK TK W}
+    (A : Adversary proto) : ProbComp Bool := do
   let (uk, tk) ← proto.setup
   let b ← $ᵗ Bool
   let (cr, st) ← challengeSession A uk tk
@@ -157,8 +159,8 @@ def Exp [SampleableType K] [DecidableEq W] {proto : Scheme K UK TK W} (A : Adver
     let K1 ← some <$> ($ᵗ K)
     finalize A st cr b K1
 
-noncomputable def advantage [SampleableType K] [DecidableEq W] {proto : Scheme K UK TK W}
-    (A : Adversary proto) : ℝ :=
+noncomputable def advantage [SampleableType K] [DecidableEq W]
+    {proto : Scheme ProbComp K UK TK W} (A : Adversary proto) : ℝ :=
   |(Pr[= true | Exp A]).toReal - 1 / 2|
 
 end AKE.UAKE

@@ -12,7 +12,7 @@ namespace AKE.ICCA
 
 variable {M PK SK C : Type}
 
-def OfAsymmEncAlg (e : AsymmEncAlg ProbComp M PK SK C) : MTP.Scheme M PK SK C where
+def OfAsymmEncAlg (e : AsymmEncAlg ProbComp M PK SK C) : MTP.Scheme ProbComp M PK SK C where
   rounds := 1
   setup := e.keygen
   sender :=
