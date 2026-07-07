@@ -621,6 +621,26 @@ def recipientForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     | .inl _ => pure none
     | .inr SK => pure (some (some SK))
 
+private lemma simulateQ_publishForger
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : RecipientParameters F G SS PQPK PQSK SPK SSK K) (pk : SPK) (sk : SSK) :
+    simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      (publishForger P p) =
+    (do
+      let spkSig ← P.sig.signingOracle pk sk (EncodeEC p.spkB.1)
+      let pqpkSig ← P.sig.signingOracle pk sk (EncodeKEM p.pqpkB.1)
+      pure { ikB := p.ikB.1
+             spkB := (p.spkB.1, P.idEC p.spkB.1)
+             spkSig := spkSig
+             pqpkB := (p.pqpkB.1, P.idKEM p.pqpkB.1)
+             pqpkSig := pqpkSig
+             opkB := p.opkB.map fun opk => (opk.1, P.idEC opk.1) }) := by
+  unfold publishForger
+  simp only [simulateQ_bind, simulateQ_pure, simulateQ_query, OracleQuery.input_query,
+    OracleQuery.cont_query, id_map]
+  rfl
+
 def initiatorIdealForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
