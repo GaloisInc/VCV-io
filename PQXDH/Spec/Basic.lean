@@ -34,6 +34,10 @@ def dhKeygen [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
 
 def DH [Field F] [AddCommGroup G] [Module F G] (sk : F) (pk : G) : G := sk • pk
 
+def genOPK [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    (gen : G) (hasOPK : Bool) : ProbComp (Option (G × F)) :=
+  if hasOPK then some <$> dhKeygen gen else pure none
+
 structure InitiatorParameters (F G SS SPK Msg K : Type) where
   ikA : G × F
   /- We include Bob's identity public key here in order to pin Bob's
@@ -46,6 +50,12 @@ structure InitiatorParameters (F G SS SPK Msg K : Type) where
   Sec. 4 as a simplifying assumption used in previous analyses. -/
   sigpkB : SPK
   msg : Msg
+  kdf : KeyMaterial G SS → K × K × K
+
+structure RecipientIdentity (F G SS SPK SSK K : Type) where
+  ikB : G × F
+  sigkB : SPK × SSK
+  spkB : G × F
   kdf : KeyMaterial G SS → K × K × K
 
 structure RecipientParameters (F G SS PQPK PQSK SPK SSK K : Type) where
@@ -83,18 +93,16 @@ structure SessionContext (G PQPK Msg K : Type) where
 
 def setup [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
-    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) :
     ProbComp (InitiatorParameters F G SS SPK Msg K ×
-      RecipientParameters F G SS PQPK PQSK SPK SSK K) := do
+      RecipientIdentity F G SS SPK SSK K) := do
   let kdf ← $ᵗ (KeyMaterial G SS → K × K × K)
   let ikA ← dhKeygen P.gen
   let ikB ← dhKeygen P.gen
   let sigkB ← P.sig.keygen
   let spkB ← dhKeygen P.gen
-  let opkB ← if hasOPK then some <$> dhKeygen P.gen else pure none
-  let pqpkB ← P.pqkem.keygen
   return ({ ikA := ikA, ikB := ikB.1, sigpkB := sigkB.1, msg := msg, kdf := kdf },
-    { ikB := ikB, sigkB := sigkB, spkB := spkB, opkB := opkB, pqpkB := pqpkB, kdf := kdf })
+    { ikB := ikB, sigkB := sigkB, spkB := spkB, kdf := kdf })
 
 def publish (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
     (p : RecipientParameters F G SS PQPK PQSK SPK SSK K) :
