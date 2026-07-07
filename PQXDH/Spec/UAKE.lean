@@ -512,6 +512,70 @@ private lemma probOutput_bind_if_true_uniformBool {α : Type} (m : ProbComp α) 
       rw [← mul_add, ENNReal.inv_two_add_inv_two, mul_one]
     simpa [probOutput_uniformSample, Fintype.card_bool] using hp
 
+def initiateIdeal [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [DecidableEq G]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : InitiatorParameters F G SS SPK Msg K)
+    (bundle : PreKeyBundle G PQPK S IdC IdK) :
+    ProbComp (Option (InitialMessage G CT C IdC IdK × SessionContext G PQPK Msg K)) := do
+  if bundle.ikB ≠ p.ikB then return none
+  let okSPK ← P.sig.verify p.sigpkB (EncodeEC bundle.spkB.1) bundle.spkSig
+  let okPQPK ← P.sig.verify p.sigpkB (EncodeKEM bundle.pqpkB.1) bundle.pqpkSig
+  if !(okSPK && okPQPK) then return none
+  let ekA : G × F ← dhKeygen P.gen
+  let (CT, _SS) ← P.pqkem.encaps bundle.pqpkB.1
+  let (SK, KA, KB) ← $ᵗ (K × K × K)
+  let AD := (p.ikA.1, bundle.ikB, bundle.pqpkB.1)
+  let ctxt ← P.aead.encrypt KA AD p.msg
+  return some ({ ikA := p.ikA.1, ekA := ekA.1, ct := CT, idSPK := bundle.spkB.2,
+                 idPQPK := bundle.pqpkB.2, idOPK := bundle.opkB.map Prod.snd, ctxt := ctxt },
+    { sk := SK, kb := KB, ad := AD, msg := p.msg })
+
+def initiatorIdeal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
+    Party (InitiatorParameters F G SS SPK Msg K) (Message G PQPK CT S C IdC IdK) (Option K) where
+  State := InitiatorParameters F G SS SPK Msg K ⊕ SessionContext G PQPK Msg K ⊕ K
+  init := fun p => pure (.waitForMsg (.inl p))
+  step := fun st w => match st, w with
+    | .inl p, .bundle b => do
+        match ← initiateIdeal P p b with
+        | some (im, ctx) => pure (.acceptAndSend (.inr (.inl ctx)) (.initial im) false)
+        | none => pure .reject
+    | .inr (.inl ctx), .confirmation conf =>
+        match confirm P ctx conf with
+        | some SK => pure (.complete (.inr (.inr SK)))
+        | none => pure .reject
+    | _, _ => pure .reject
+  output := fun st => match st with
+    | .inr (.inr SK) => pure (some (some SK))
+    | _ => pure none
+
+def uakeInitiatorIdeal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    UAKE.Scheme K (InitiatorParameters F G SS SPK Msg K)
+      (RecipientIdentity F G SS SPK SSK K)
+      (Message G PQPK CT S C IdC IdK) where
+  rounds := 3
+  setup := setup P msg
+  U := initiatorIdeal P
+  T := recipient P hasOPK
+
+def _root_.AKE.UAKE.Adversary.toIdeal
+    [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK} {msg : Msg} {hasOPK : Bool}
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    UAKE.Adversary (uakeInitiatorIdeal P msg hasOPK) where
+  State := A.State
+  challenge := A.challenge
+  post := A.post
+
 theorem uakeInitiator_secure_pq
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
@@ -533,33 +597,21 @@ theorem uakeInitiator_secure_pq
         (do let ss ← $ᵗ SS; pure (DH1, DH2, DH3, DH4, ss)) εkdf) :
     UAKE.advantage A ≤ εsig + q * (εkem + εaead + εkdf) := by
   unfold UAKE.advantage
-  have hExp : Pr[= true | UAKE.Exp A] = Pr[= true | do
-      let (uk, tk) ← (uakeInitiator P msg hasOPK).setup
-      let (cr, st) ← UAKE.challengeSession A uk tk
-      let b ← $ᵗ Bool
-      if cr.K0.isNone then UAKE.finalize A st cr b none
-      else if !UAKE.isPingPong cr then pure true
-      else do let K1 ← some <$> ($ᵗ K); UAKE.finalize A st cr b K1] := by
-    unfold UAKE.Exp
-    refine probOutput_bind_congr' _ true (fun p => ?_)
-    obtain ⟨uk, tk⟩ := p
-    exact probOutput_bind_bind_swap ($ᵗ Bool) (UAKE.challengeSession A uk tk) _ true
-  rw [hExp]
-  have hbranch : ∀ (cr : UAKE.ChallengeResult (uakeInitiator P msg hasOPK))
-      (st : A.State × UAKE.Env (uakeInitiator P msg hasOPK) ×
-        RecipientIdentity F G SS SPK SSK K),
-      (do let b ← $ᵗ Bool
-          if cr.K0.isNone then UAKE.finalize A st cr b none
-          else if !UAKE.isPingPong cr then pure true
-          else do let K1 ← some <$> ($ᵗ K); UAKE.finalize A st cr b K1) =
-        (if cr.K0.isNone then (do let b ← $ᵗ Bool; UAKE.finalize A st cr b none)
-         else if !UAKE.isPingPong cr then (do let _ ← $ᵗ Bool; (pure true : ProbComp Bool))
-         else (do let b ← $ᵗ Bool; let K1 ← some <$> ($ᵗ K); UAKE.finalize A st cr b K1)) := by
-    intro cr st
-    by_cases h1 : cr.K0.isNone = true <;> by_cases h2 : (!UAKE.isPingPong cr) = true <;>
-      simp [h1, h2]
-  simp only [hbranch]
-  sorry
+  set pReal := (Pr[= true | UAKE.Exp A]).toReal with hpReal
+  set pIdeal := (Pr[= true | UAKE.Exp A.toIdeal]).toReal with hpIdeal
+  -- Hop 1 (KEM IND-CCA on the challenge KEM key, then `KdfHidesInput`): reprogramming the
+  -- challenge session's key material to uniform is undetectable, hybridized over the q sessions.
+  have hKeyHop : |pReal - pIdeal| ≤ q * (εkem + εkdf) := by
+    sorry
+  -- Hop 2 (signature EUF-CMA + AEAD INT-CTXT): with the challenge key uniform, confidentiality
+  -- is exactly 1/2, and a non-ping-pong completion needs a forged prekey signature (εsig) or a
+  -- forged AEAD confirmation under a uniform key (q·εaead).
+  have hIdealHop : |pIdeal - 1 / 2| ≤ εsig + q * εaead := by
+    sorry
+  calc |pReal - 1 / 2|
+      ≤ |pReal - pIdeal| + |pIdeal - 1 / 2| := abs_sub_le _ _ _
+    _ ≤ q * (εkem + εkdf) + (εsig + q * εaead) := add_le_add hKeyHop hIdealHop
+    _ = εsig + q * (εkem + εaead + εkdf) := by ring
 
 theorem uakeInitiator_secure_dh
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
@@ -581,6 +633,21 @@ theorem uakeInitiator_secure_dh
       KdfHidesInput (K := K)
         (do let c ← $ᵗ F; pure (DH1, DH2, c • P.gen, DH4, ss)) εkdf) :
     UAKE.advantage A ≤ εsig + q * (εddh + εaead + εkdf) := by
-  sorry
+  unfold UAKE.advantage
+  set pReal := (Pr[= true | UAKE.Exp A]).toReal with hpReal
+  set pIdeal := (Pr[= true | UAKE.Exp A.toIdeal]).toReal with hpIdeal
+  -- Hop 1 (DDH/GapDH on the challenge DH share, then `KdfHidesInput`): reprogramming the
+  -- challenge session's key material to uniform is undetectable, hybridized over the q sessions.
+  have hKeyHop : |pReal - pIdeal| ≤ q * (εddh + εkdf) := by
+    sorry
+  -- Hop 2 (signature EUF-CMA + AEAD INT-CTXT): identical to the pq case — with the challenge key
+  -- uniform, confidentiality is 1/2 and a non-ping-pong completion needs a forged signature or a
+  -- forged AEAD confirmation.
+  have hIdealHop : |pIdeal - 1 / 2| ≤ εsig + q * εaead := by
+    sorry
+  calc |pReal - 1 / 2|
+      ≤ |pReal - pIdeal| + |pIdeal - 1 / 2| := abs_sub_le _ _ _
+    _ ≤ q * (εddh + εkdf) + (εsig + q * εaead) := add_le_add hKeyHop hIdealHop
+    _ = εsig + q * (εddh + εaead + εkdf) := by ring
 
 end PQXDH
