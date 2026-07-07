@@ -489,7 +489,7 @@ def kdfRoRExp [SampleableType (KeyMaterial G SS → K × K × K)]
     ProbComp Bool := do
   let kdf ← $ᵗ (KeyMaterial G SS → K × K × K)
   let x ← km
-  let ks ← if b then pure (kdf x) else $ᵗ (K × K × K)
+  let ks ← if b then pure (kdf x) else do let sk ← $ᵗ K; pure (sk, (kdf x).2)
   D kdf ks
 
 def KdfHidesInput [SampleableType (KeyMaterial G SS → K × K × K)]
@@ -525,8 +525,13 @@ def initiateIdeal [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [De
   let okPQPK ← P.sig.verify p.sigpkB (EncodeKEM bundle.pqpkB.1) bundle.pqpkSig
   if !(okSPK && okPQPK) then return none
   let ekA : G × F ← dhKeygen P.gen
-  let (CT, _SS) ← P.pqkem.encaps bundle.pqpkB.1
-  let (SK, KA, KB) ← $ᵗ (K × K × K)
+  let (CT, SS) ← P.pqkem.encaps bundle.pqpkB.1
+  let DH1 := DH p.ikA.2 bundle.spkB.1
+  let DH2 := DH ekA.2 bundle.ikB
+  let DH3 := DH ekA.2 bundle.spkB.1
+  let DH4 := bundle.opkB.map fun opk => DH ekA.2 opk.1
+  let (_SK, KA, KB) := p.kdf (DH1, DH2, DH3, DH4, SS)
+  let SK ← $ᵗ K
   let AD := (p.ikA.1, bundle.ikB, bundle.pqpkB.1)
   let ctxt ← P.aead.encrypt KA AD p.msg
   return some ({ ikA := p.ikA.1, ekA := ekA.1, ct := CT, idSPK := bundle.spkB.2,
