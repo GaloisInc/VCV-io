@@ -11,7 +11,7 @@ open OracleSpec OracleComp
 
 namespace PQXDH
 
-variable {F G SS PQPK PQSK CT S C Msg K IdC IdK : Type}
+variable {F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK : Type}
 
 def EncodeEC {G PQPK : Type} (pk : G) : G ⊕ PQPK := Sum.inl pk
 
@@ -19,10 +19,10 @@ def EncodeKEM {G PQPK : Type} (pk : PQPK) : G ⊕ PQPK := Sum.inr pk
 
 abbrev KeyMaterial (G SS : Type) : Type := G × G × G × Option G × SS
 
-structure Parameters (F G SS PQPK PQSK CT S C Msg K IdC IdK : Type) where
+structure Parameters (F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK : Type) where
   gen : G
   pqkem : KEMScheme ProbComp SS PQPK PQSK CT
-  sig : SignatureAlg ProbComp (G ⊕ PQPK) G F S
+  sig : SignatureAlg ProbComp (G ⊕ PQPK) SPK SSK S
   aead : AEAD.Scheme ProbComp Msg K (G × G × PQPK) C
   idEC : G → IdC
   idKEM : PQPK → IdK
@@ -34,17 +34,23 @@ def dhKeygen [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
 
 def DH [Field F] [AddCommGroup G] [Module F G] (sk : F) (pk : G) : G := sk • pk
 
-structure InitiatorParameters (F G SS Msg K : Type) where
+structure InitiatorParameters (F G SS SPK Msg K : Type) where
   ikA : G × F
   /- We include Bob's identity public key here in order to pin Bob's
     identity to Alice. This models the out-of-band key fingerprinting from Sec.
     4.1 of the spec. -/
   ikB : G
+  /- DEVIATION FROM SPEC: We make a simplifying assumption that Bob's identity
+  key contains independently chosen values for DH and signature scheme keys.
+  This conflicts with the verbatim wording of the spec, but it is mentioned in
+  Sec. 4 as a simplifying assumption used in previous analyses. -/
+  sigpkB : SPK
   msg : Msg
   kdf : KeyMaterial G SS → K × K × K
 
-structure RecipientParameters (F G SS PQPK PQSK K : Type) where
+structure RecipientParameters (F G SS PQPK PQSK SPK SSK K : Type) where
   ikB : G × F
+  sigkB : SPK × SSK
   spkB : G × F
   opkB : Option (G × F)
   pqpkB : PQPK × PQSK
@@ -77,22 +83,24 @@ structure SessionContext (G PQPK Msg K : Type) where
 
 def setup [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
-    ProbComp (InitiatorParameters F G SS Msg K × RecipientParameters F G SS PQPK PQSK K) := do
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    ProbComp (InitiatorParameters F G SS SPK Msg K ×
+      RecipientParameters F G SS PQPK PQSK SPK SSK K) := do
   let kdf ← $ᵗ (KeyMaterial G SS → K × K × K)
   let ikA ← dhKeygen P.gen
   let ikB ← dhKeygen P.gen
+  let sigkB ← P.sig.keygen
   let spkB ← dhKeygen P.gen
   let opkB ← if hasOPK then some <$> dhKeygen P.gen else pure none
   let pqpkB ← P.pqkem.keygen
-  return ({ ikA := ikA, ikB := ikB.1, msg := msg, kdf := kdf },
-    { ikB := ikB, spkB := spkB, opkB := opkB, pqpkB := pqpkB, kdf := kdf })
+  return ({ ikA := ikA, ikB := ikB.1, sigpkB := sigkB.1, msg := msg, kdf := kdf },
+    { ikB := ikB, sigkB := sigkB, spkB := spkB, opkB := opkB, pqpkB := pqpkB, kdf := kdf })
 
-def publish (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
-    (p : RecipientParameters F G SS PQPK PQSK K) :
+def publish (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : RecipientParameters F G SS PQPK PQSK SPK SSK K) :
     ProbComp (PreKeyBundle G PQPK S IdC IdK) := do
-  let spkSig ← P.sig.sign p.ikB.1 p.ikB.2 (EncodeEC p.spkB.1)
-  let pqpkSig ← P.sig.sign p.ikB.1 p.ikB.2 (EncodeKEM p.pqpkB.1)
+  let spkSig ← P.sig.sign p.sigkB.1 p.sigkB.2 (EncodeEC p.spkB.1)
+  let pqpkSig ← P.sig.sign p.sigkB.1 p.sigkB.2 (EncodeKEM p.pqpkB.1)
   return { ikB := p.ikB.1
            spkB := (p.spkB.1, P.idEC p.spkB.1)
            spkSig := spkSig
@@ -101,13 +109,13 @@ def publish (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
            opkB := p.opkB.map fun opk => (opk.1, P.idEC opk.1) }
 
 def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [DecidableEq G]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
-    (p : InitiatorParameters F G SS Msg K)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : InitiatorParameters F G SS SPK Msg K)
     (bundle : PreKeyBundle G PQPK S IdC IdK) :
     ProbComp (Option (InitialMessage G CT C IdC IdK × SessionContext G PQPK Msg K)) := do
   if bundle.ikB ≠ p.ikB then return none
-  let okSPK ← P.sig.verify bundle.ikB (EncodeEC bundle.spkB.1) bundle.spkSig
-  let okPQPK ← P.sig.verify bundle.ikB (EncodeKEM bundle.pqpkB.1) bundle.pqpkSig
+  let okSPK ← P.sig.verify p.sigpkB (EncodeEC bundle.spkB.1) bundle.spkSig
+  let okPQPK ← P.sig.verify p.sigpkB (EncodeKEM bundle.pqpkB.1) bundle.pqpkSig
   if !(okSPK && okPQPK) then return none
   let ekA : G × F ← dhKeygen P.gen
   let (CT, SS) ← P.pqkem.encaps bundle.pqpkB.1
@@ -135,8 +143,8 @@ def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [Decidab
     { sk := SK, kb := KB, ad := AD, msg := p.msg })
 
 def accept [Field F] [AddCommGroup G] [Module F G] [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
-    (p : RecipientParameters F G SS PQPK PQSK K)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : RecipientParameters F G SS PQPK PQSK SPK SSK K)
     (msg : InitialMessage G CT C IdC IdK) :
     ProbComp (Option (SessionContext G PQPK Msg K)) := do
   if msg.idSPK ≠ P.idEC p.spkB.1 ∨ msg.idPQPK ≠ P.idKEM p.pqpkB.1 ∨
@@ -153,7 +161,7 @@ def accept [Field F] [AddCommGroup G] [Module F G] [DecidableEq IdC] [DecidableE
   | none => return none
 
 def confirm [DecidableEq Msg]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
     (ctx : SessionContext G PQPK Msg K) (conf : C) : Option K :=
   if P.aead.decrypt ctx.kb ctx.ad conf = some ctx.msg then some ctx.sk
   else none

@@ -12,7 +12,7 @@ open OracleSpec OracleComp AKE
 
 namespace PQXDH
 
-variable {F G SS PQPK PQSK CT S C Msg K IdC IdK : Type}
+variable {F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK : Type}
 
 inductive Message (G PQPK CT S C IdC IdK : Type) where
   | bundle : PreKeyBundle G PQPK S IdC IdK → Message G PQPK CT S C IdC IdK
@@ -22,9 +22,9 @@ inductive Message (G PQPK CT S C IdC IdK : Type) where
 
 def initiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [DecidableEq Msg]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) :
-    Party (InitiatorParameters F G SS Msg K) (Message G PQPK CT S C IdC IdK) (Option K) where
-  State := InitiatorParameters F G SS Msg K ⊕ SessionContext G PQPK Msg K ⊕ K
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
+    Party (InitiatorParameters F G SS SPK Msg K) (Message G PQPK CT S C IdC IdK) (Option K) where
+  State := InitiatorParameters F G SS SPK Msg K ⊕ SessionContext G PQPK Msg K ⊕ K
   init := fun p => pure (.waitForMsg (.inl p))
   step := fun st w => match st, w with
     | .inl p, .bundle b => do
@@ -42,9 +42,10 @@ def initiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
 
 def recipient [Field F] [AddCommGroup G] [Module F G]
     [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) :
-    Party (RecipientParameters F G SS PQPK PQSK K) (Message G PQPK CT S C IdC IdK) (Option K) where
-  State := RecipientParameters F G SS PQPK PQSK K ⊕ K
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
+    Party (RecipientParameters F G SS PQPK PQSK SPK SSK K)
+      (Message G PQPK CT S C IdC IdK) (Option K) where
+  State := RecipientParameters F G SS PQPK PQSK SPK SSK K ⊕ K
   init := fun p => do
     let bundle ← publish P p
     pure (.speakFirst (.inl p) (.bundle bundle))
@@ -70,8 +71,9 @@ def recipient [Field F] [AddCommGroup G] [Module F G]
 def uakeInitiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
     [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
-    UAKE.Scheme K (InitiatorParameters F G SS Msg K) (RecipientParameters F G SS PQPK PQSK K)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    UAKE.Scheme K (InitiatorParameters F G SS SPK Msg K)
+      (RecipientParameters F G SS PQPK PQSK SPK SSK K)
       (Message G PQPK CT S C IdC IdK) where
   rounds := 3
   setup := setup P msg hasOPK
@@ -81,8 +83,9 @@ def uakeInitiator [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
 def uakeRecipient [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
     [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
-    UAKE.Scheme K (RecipientParameters F G SS PQPK PQSK K) (InitiatorParameters F G SS Msg K)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    UAKE.Scheme K (RecipientParameters F G SS PQPK PQSK SPK SSK K)
+      (InitiatorParameters F G SS SPK Msg K)
       (Message G PQPK CT S C IdC IdK) where
   rounds := 4
   setup := Prod.swap <$> setup P msg hasOPK
@@ -110,17 +113,14 @@ private lemma fst_eq_smul_of_mem_support_dhKeygen
   rfl
 
 private lemma verify_eq_true_of_perfectlyComplete
-    [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
-    (hkg : P.sig.keygen = dhKeygen P.gen)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
     (hsig : P.sig.PerfectlyComplete ProbCompRuntime.probComp)
-    {kp : G × F} (hkp : kp ∈ support (dhKeygen (F := F) P.gen))
+    {kp : SPK × SSK} (hkp : kp ∈ support P.sig.keygen)
     (m : G ⊕ PQPK) {σ : S} (hσ : σ ∈ support (P.sig.sign kp.1 kp.2 m))
     {b : Bool} (hb : b ∈ support (P.sig.verify kp.1 m σ)) : b = true := by
   have h := support_eq_singleton_true_of_evalDist (hsig m)
-  rw [hkg] at h
   have hmem : b ∈ support (do
-      let (pk, sk) ← dhKeygen (F := F) P.gen
+      let (pk, sk) ← P.sig.keygen
       let s ← P.sig.sign pk sk m
       P.sig.verify pk m s) := by
     refine (mem_support_bind_iff _ _ _).mpr ⟨kp, hkp, ?_⟩
@@ -129,7 +129,7 @@ private lemma verify_eq_true_of_perfectlyComplete
   exact hmem
 
 private lemma decaps_eq_some_of_perfectlyCorrect [DecidableEq SS]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
     (hkem : P.pqkem.PerfectlyCorrect ProbCompRuntime.probComp)
     {kp : PQPK × PQSK} (hkp : kp ∈ support P.pqkem.keygen)
     {cs : CT × SS} (hcs : cs ∈ support (P.pqkem.encaps kp.1))
@@ -145,7 +145,7 @@ private lemma decaps_eq_some_of_perfectlyCorrect [DecidableEq SS]
   simpa using hmem
 
 private lemma aead_decrypt_encrypt_of_perfectlyCorrect [DecidableEq Msg] [SampleableType K]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
     (haead : AEAD.PerfectlyCorrect P.aead)
     (k : K) (ad : G × G × PQPK) (m : Msg) {c : C}
     (hc : c ∈ support (P.aead.encrypt k ad m)) :
@@ -163,12 +163,13 @@ private lemma aead_decrypt_encrypt_of_perfectlyCorrect [DecidableEq Msg] [Sample
 
 private lemma mem_support_initiate
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [DecidableEq G]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
-    {p : InitiatorParameters F G SS Msg K} {bundle : PreKeyBundle G PQPK S IdC IdK}
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    {p : InitiatorParameters F G SS SPK Msg K} {bundle : PreKeyBundle G PQPK S IdC IdK}
     {r : Option (InitialMessage G CT C IdC IdK × SessionContext G PQPK Msg K)}
     (hpin : bundle.ikB = p.ikB)
-    (hok₁ : ∀ b ∈ support (P.sig.verify p.ikB (EncodeEC bundle.spkB.1) bundle.spkSig), b = true)
-    (hok₂ : ∀ b ∈ support (P.sig.verify p.ikB (EncodeKEM bundle.pqpkB.1) bundle.pqpkSig),
+    (hok₁ : ∀ b ∈ support (P.sig.verify p.sigpkB (EncodeEC bundle.spkB.1) bundle.spkSig),
+      b = true)
+    (hok₂ : ∀ b ∈ support (P.sig.verify p.sigpkB (EncodeKEM bundle.pqpkB.1) bundle.pqpkSig),
       b = true)
     (hr : r ∈ support (initiate P p bundle)) :
     ∃ ekA ∈ support (dhKeygen (F := F) P.gen),
@@ -202,8 +203,8 @@ private lemma dh_comm [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
 
 private lemma mem_support_accept
     [Field F] [AddCommGroup G] [Module F G] [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
-    {p : RecipientParameters F G SS PQPK PQSK K}
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    {p : RecipientParameters F G SS PQPK PQSK SPK SSK K}
     {im : InitialMessage G CT C IdC IdK} {ss : SS} {m₀ : Msg}
     {r : Option (SessionContext G PQPK Msg K)}
     (hid₁ : im.idSPK = P.idEC p.spkB.1)
@@ -231,21 +232,21 @@ private lemma run_support_initiator
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [DecidableEq IdC] [DecidableEq IdK]
     [DecidableEq SS] [DecidableEq Msg] [SampleableType K]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
-    (hkg : P.sig.keygen = dhKeygen P.gen)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
     (hsig : P.sig.PerfectlyComplete ProbCompRuntime.probComp)
     (hkem : P.pqkem.PerfectlyCorrect ProbCompRuntime.probComp)
     (haead : AEAD.PerfectlyCorrect P.aead)
     (msg : Msg) {kdf : KeyMaterial G SS → K × K × K}
-    {ikA ikB spkB : G × F} {opkB : Option (G × F)} {pqpkB : PQPK × PQSK}
+    {ikA ikB spkB : G × F} {sigkB : SPK × SSK} {opkB : Option (G × F)} {pqpkB : PQPK × PQSK}
     (hikA : ikA ∈ support (dhKeygen (F := F) P.gen))
     (hikB : ikB ∈ support (dhKeygen (F := F) P.gen))
+    (hsigkB : sigkB ∈ support P.sig.keygen)
     (hspkB : spkB ∈ support (dhKeygen (F := F) P.gen))
     (hopkB : ∀ x ∈ opkB, x ∈ support (dhKeygen (F := F) P.gen))
     (hpqpkB : pqpkB ∈ support P.pqkem.keygen)
     {uOut tOut : Option (Option K)}
     (hrun : (uOut, tOut) ∈ support (runHonest (initiator P) (recipient P)
-      ⟨ikA, ikB.1, msg, kdf⟩ ⟨ikB, spkB, opkB, pqpkB, kdf⟩ (3 + 1))) :
+      ⟨ikA, ikB.1, sigkB.1, msg, kdf⟩ ⟨ikB, sigkB, spkB, opkB, pqpkB, kdf⟩ (3 + 1))) :
     ∃ k, uOut = some (some k) ∧ tOut = some (some k) := by
   simp only [runHonest, initiator, recipient, mem_support_bind_iff, support_pure,
     Set.mem_singleton_iff] at hrun
@@ -257,8 +258,8 @@ private lemma run_support_initiator
   simp only [runHonestLoop, mem_support_bind_iff] at hy
   obtain ⟨r, ⟨ir, hir, hr⟩, hy⟩ := hy
   obtain ⟨ekA, hekA, cs, hcs, ctxt, hctxt, rfl⟩ := mem_support_initiate P rfl
-    (fun b hb => verify_eq_true_of_perfectlyComplete P hkg hsig hikB _ hσ₁ hb)
-    (fun b hb => verify_eq_true_of_perfectlyComplete P hkg hsig hikB _ hσ₂ hb) hir
+    (fun b hb => verify_eq_true_of_perfectlyComplete P hsig hsigkB _ hσ₁ hb)
+    (fun b hb => verify_eq_true_of_perfectlyComplete P hsig hsigkB _ hσ₂ hb) hir
   simp only [support_pure, Set.mem_singleton_iff] at hr
   subst hr
   dsimp only at hctxt hcs hy
@@ -302,21 +303,21 @@ private lemma run_support_recipient
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [DecidableEq IdC] [DecidableEq IdK]
     [DecidableEq SS] [DecidableEq Msg] [SampleableType K]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK)
-    (hkg : P.sig.keygen = dhKeygen P.gen)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
     (hsig : P.sig.PerfectlyComplete ProbCompRuntime.probComp)
     (hkem : P.pqkem.PerfectlyCorrect ProbCompRuntime.probComp)
     (haead : AEAD.PerfectlyCorrect P.aead)
     (msg : Msg) {kdf : KeyMaterial G SS → K × K × K}
-    {ikA ikB spkB : G × F} {opkB : Option (G × F)} {pqpkB : PQPK × PQSK}
+    {ikA ikB spkB : G × F} {sigkB : SPK × SSK} {opkB : Option (G × F)} {pqpkB : PQPK × PQSK}
     (hikA : ikA ∈ support (dhKeygen (F := F) P.gen))
     (hikB : ikB ∈ support (dhKeygen (F := F) P.gen))
+    (hsigkB : sigkB ∈ support P.sig.keygen)
     (hspkB : spkB ∈ support (dhKeygen (F := F) P.gen))
     (hopkB : ∀ x ∈ opkB, x ∈ support (dhKeygen (F := F) P.gen))
     (hpqpkB : pqpkB ∈ support P.pqkem.keygen)
     {uOut tOut : Option (Option K)}
     (hrun : (uOut, tOut) ∈ support (runHonest (recipient P) (initiator P)
-      ⟨ikB, spkB, opkB, pqpkB, kdf⟩ ⟨ikA, ikB.1, msg, kdf⟩ (4 + 1))) :
+      ⟨ikB, sigkB, spkB, opkB, pqpkB, kdf⟩ ⟨ikA, ikB.1, sigkB.1, msg, kdf⟩ (4 + 1))) :
     ∃ k, uOut = some (some k) ∧ tOut = some (some k) := by
   simp only [runHonest, initiator, recipient, mem_support_bind_iff, support_pure,
     Set.mem_singleton_iff] at hrun
@@ -328,8 +329,8 @@ private lemma run_support_recipient
   simp only [runHonestLoop, mem_support_bind_iff] at hy
   obtain ⟨r, ⟨ir, hir, hr⟩, hy⟩ := hy
   obtain ⟨ekA, hekA, cs, hcs, ctxt, hctxt, rfl⟩ := mem_support_initiate P rfl
-    (fun b hb => verify_eq_true_of_perfectlyComplete P hkg hsig hikB _ hσ₁ hb)
-    (fun b hb => verify_eq_true_of_perfectlyComplete P hkg hsig hikB _ hσ₂ hb) hir
+    (fun b hb => verify_eq_true_of_perfectlyComplete P hsig hsigkB _ hσ₁ hb)
+    (fun b hb => verify_eq_true_of_perfectlyComplete P hsig hsigkB _ hσ₂ hb) hir
   simp only [support_pure, Set.mem_singleton_iff] at hr
   subst hr
   dsimp only at hctxt hcs hy
@@ -376,8 +377,7 @@ theorem uakeInitiator_perfectlyCorrect
     [SampleableType (KeyMaterial G SS → K × K × K)]
     [DecidableEq G] [DecidableEq IdC] [DecidableEq IdK]
     [DecidableEq K] [DecidableEq SS] [DecidableEq Msg] [SampleableType K]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
-    (hkg : P.sig.keygen = dhKeygen P.gen)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
     (hsig : P.sig.PerfectlyComplete ProbCompRuntime.probComp)
     (hkem : P.pqkem.PerfectlyCorrect ProbCompRuntime.probComp)
     (haead : AEAD.PerfectlyCorrect P.aead) :
@@ -396,19 +396,19 @@ theorem uakeInitiator_perfectlyCorrect
       simp only [setup, Bool.false_eq_true, if_false, mem_support_bind_iff,
         support_uniformSample, Set.mem_univ, true_and, support_pure, Set.mem_singleton_iff,
         Prod.mk.injEq] at hsetup
-      obtain ⟨kdf, ikA, hikA, ikB, hikB, spkB, hspkB, opkB, hopkB, pqpkB, hpqpkB, huk, htk⟩ :=
-        hsetup
+      obtain ⟨kdf, ikA, hikA, ikB, hikB, sigkB, hsigkB, spkB, hspkB, opkB, hopkB, pqpkB,
+        hpqpkB, huk, htk⟩ := hsetup
       subst hopkB huk htk
-      exact run_support_initiator P hkg hsig hkem haead msg hikA hikB hspkB
+      exact run_support_initiator P hsig hkem haead msg hikA hikB hsigkB hspkB
         (by simp) hpqpkB hrun
   | true =>
       simp only [setup, if_true, mem_support_bind_iff, support_uniformSample, Set.mem_univ,
         true_and, support_pure, Set.mem_singleton_iff, Prod.mk.injEq,
         support_map, Set.mem_image] at hsetup
-      obtain ⟨kdf, ikA, hikA, ikB, hikB, spkB, hspkB, opkB, ⟨opk, hopk, hopkB⟩, pqpkB,
-        hpqpkB, huk, htk⟩ := hsetup
+      obtain ⟨kdf, ikA, hikA, ikB, hikB, sigkB, hsigkB, spkB, hspkB, opkB, ⟨opk, hopk, hopkB⟩,
+        pqpkB, hpqpkB, huk, htk⟩ := hsetup
       subst hopkB huk htk
-      refine run_support_initiator P hkg hsig hkem haead msg hikA hikB hspkB ?_ hpqpkB hrun
+      refine run_support_initiator P hsig hkem haead msg hikA hikB hsigkB hspkB ?_ hpqpkB hrun
       intro x hx
       simp only [Option.mem_def, Option.some.injEq] at hx
       exact hx ▸ hopk
@@ -418,13 +418,45 @@ theorem uakeRecipient_perfectlyCorrect
     [SampleableType (KeyMaterial G SS → K × K × K)]
     [DecidableEq G] [DecidableEq IdC] [DecidableEq IdK]
     [DecidableEq K] [DecidableEq SS] [DecidableEq Msg] [SampleableType K]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
-    (hkg : P.sig.keygen = dhKeygen P.gen)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
     (hsig : P.sig.PerfectlyComplete ProbCompRuntime.probComp)
     (hkem : P.pqkem.PerfectlyCorrect ProbCompRuntime.probComp)
     (haead : AEAD.PerfectlyCorrect P.aead) :
     UAKE.PerfectlyCorrect (uakeRecipient P msg hasOPK) := by
-  sorry
+  refine probOutput_eq_one_of_support_subset_singleton ?_ ?_
+  · exact HasEvalPMF.probFailure_eq_zero _
+  intro b hb
+  simp only [UAKE.CorrectExp, uakeRecipient, mem_support_bind_iff, support_pure,
+    Set.mem_singleton_iff, Prod.exists] at hb
+  obtain ⟨uk, tk, hsetup, uOut, tOut, hrun, rfl⟩ := hb
+  suffices h : ∃ k, uOut = some (some k) ∧ tOut = some (some k) by
+    obtain ⟨k, rfl, rfl⟩ := h
+    simp
+  cases hasOPK with
+  | false =>
+      simp only [setup, Bool.false_eq_true, if_false, support_map, Set.mem_image,
+        mem_support_bind_iff, support_uniformSample, Set.mem_univ, true_and, support_pure,
+        Set.mem_singleton_iff] at hsetup
+      obtain ⟨x, ⟨kdf, ikA, hikA, ikB, hikB, sigkB, hsigkB, spkB, hspkB, opkB, hopkB, pqpkB,
+        hpqpkB, rfl⟩, hswap⟩ := hsetup
+      simp only [Prod.swap_prod_mk, Prod.mk.injEq] at hswap
+      obtain ⟨huk, htk⟩ := hswap
+      subst hopkB huk htk
+      exact run_support_recipient P hsig hkem haead msg hikA hikB hsigkB hspkB
+        (by simp) hpqpkB hrun
+  | true =>
+      simp only [setup, if_true, support_map, Set.mem_image, mem_support_bind_iff,
+        support_uniformSample, Set.mem_univ, true_and, support_pure,
+        Set.mem_singleton_iff] at hsetup
+      obtain ⟨x, ⟨kdf, ikA, hikA, ikB, hikB, sigkB, hsigkB, spkB, hspkB, opkB, ⟨opk, hopk, hopkB⟩,
+        pqpkB, hpqpkB, rfl⟩, hswap⟩ := hsetup
+      simp only [Prod.swap_prod_mk, Prod.mk.injEq] at hswap
+      obtain ⟨huk, htk⟩ := hswap
+      subst hopkB huk htk
+      refine run_support_recipient P hsig hkem haead msg hikA hikB hsigkB hspkB ?_ hpqpkB hrun
+      intro x hx
+      simp only [Option.mem_def, Option.some.injEq] at hx
+      exact hx ▸ hopk
 
 def _root_.AKE.UAKE.Adversary.OpensAtMost {K UK TK W : Type} {proto : UAKE.Scheme K UK TK W}
     (A : UAKE.Adversary proto) (q : ℕ) : Prop :=
@@ -454,8 +486,7 @@ theorem uakeInitiator_secure_pq
     [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
-    (hkg : P.sig.keygen = dhKeygen P.gen)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εkem εaead εkdf : ℝ)
     (hsig : ∀ B : P.sig.unforgeableAdv,
@@ -476,8 +507,7 @@ theorem uakeInitiator_secure_dh
     [SampleableType K] [Fintype K] [Inhabited K]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
-    (P : Parameters F G SS PQPK PQSK CT S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
-    (hkg : P.sig.keygen = dhKeygen P.gen)
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εddh εaead εkdf : ℝ)
     (hsig : ∀ B : P.sig.unforgeableAdv,
