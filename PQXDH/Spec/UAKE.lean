@@ -1123,7 +1123,7 @@ noncomputable def idealAuthBreak [Field F] [AddCommGroup G] [Module F G] [Sample
 
 private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
-    [SampleableType K] [Fintype K] [Inhabited K]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
@@ -1135,17 +1135,22 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
     (haead : ∀ B : AEAD.IND_CTXT_Adversary P.aead,
       AEAD.IND_CTXT_Advantage P.aead B ≤ εaead) :
     |(Pr[= true | UAKE.Exp A.toIdeal]).toReal - 1 / 2| ≤ εsig + q * εaead := by
-  -- The ideal game's session key `SK` is sampled uniformly and used only as Alice's output,
-  -- so both the `K0 = none` branch and the ping-pong branch contribute exactly `1/2`, leaving
-  -- the authenticity-break branch (`K0` accepted, not ping-pong) as the sole excess over `1/2`.
+  haveI : Inhabited G := ⟨0⟩
   have hdecomp : Pr[= true | UAKE.Exp A.toIdeal]
       = 1 / 2 + idealAuthBreak P msg hasOPK A / 2 := by
     sorry
-  -- A non-ping-pong completion in the ideal game requires either a forged prekey signature
-  -- (`εsig`, via `sigForger` and the `challengeSession` bridge) or a forged AEAD confirmation
-  -- under the now-uniform key (`q · εaead`, hybridised over the ≤ q recipient sessions).
   have hauth : (idealAuthBreak P msg hasOPK A).toReal ≤ 2 * (εsig + q * εaead) := by
-    sorry
+    have hbundle : (idealAuthBreak P msg hasOPK A).toReal
+        ≤ 2 * ((sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp).toReal
+          + 2 * (q * εaead) := by
+      sorry
+    calc (idealAuthBreak P msg hasOPK A).toReal
+        ≤ 2 * ((sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp).toReal
+            + 2 * (q * εaead) := hbundle
+      _ ≤ 2 * εsig + 2 * (q * εaead) := by
+          gcongr
+          exact hsig (sigForger P msg hasOPK A)
+      _ = 2 * (εsig + q * εaead) := by ring
   have hne : idealAuthBreak P msg hasOPK A ≠ ⊤ := probOutput_ne_top
   rw [hdecomp, ENNReal.toReal_add (by simp) (by simp [ENNReal.div_eq_top, hne]),
     ENNReal.toReal_div, ENNReal.toReal_div]
@@ -1157,6 +1162,7 @@ theorem uakeInitiator_secure_pq
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
     [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS]
+    [Inhabited S] [Inhabited SSK]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
@@ -1193,7 +1199,7 @@ theorem uakeInitiator_secure_pq
 theorem uakeInitiator_secure_dh
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
-    [SampleableType K] [Fintype K] [Inhabited K]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
