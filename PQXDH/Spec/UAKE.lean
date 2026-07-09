@@ -1130,6 +1130,7 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
     (hidKEM : Function.Injective P.idKEM)
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εaead : ℝ)
+    (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
     (hsig : ∀ B : P.sig.unforgeableAdv,
       (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (haead : ∀ B : AEAD.IND_CTXT_Adversary P.aead,
@@ -1169,6 +1170,7 @@ theorem uakeInitiator_secure_pq
     (hidKEM : Function.Injective P.idKEM)
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εkem εaead εkdf : ℝ)
+    (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
     (hsig : ∀ B : P.sig.unforgeableAdv,
       (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hkem : ∀ B : P.pqkem.IND_CCA_Adversary,
@@ -1190,7 +1192,7 @@ theorem uakeInitiator_secure_pq
   -- is exactly 1/2, and a non-ping-pong completion needs a forged prekey signature (εsig) or a
   -- forged AEAD confirmation under a uniform key (q·εaead).
   have hIdealHop : |pIdeal - 1 / 2| ≤ εsig + q * εaead :=
-    idealHop_bound P msg hasOPK hidKEM A q hq εsig εaead hsig haead
+    idealHop_bound P msg hasOPK hidKEM A q hq εsig εaead hverifyDet hsig haead
   calc |pReal - 1 / 2|
       ≤ |pReal - pIdeal| + |pIdeal - 1 / 2| := abs_sub_le _ _ _
     _ ≤ q * (εkem + εkdf) + (εsig + q * εaead) := add_le_add hKeyHop hIdealHop
@@ -1206,6 +1208,7 @@ theorem uakeInitiator_secure_dh
     (hidKEM : Function.Injective P.idKEM)
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εddh εaead εkdf : ℝ)
+    (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
     (hsig : ∀ B : P.sig.unforgeableAdv,
       (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hddh : ∀ D : DiffieHellman.DDHAdversary F G,
@@ -1227,7 +1230,7 @@ theorem uakeInitiator_secure_dh
   -- uniform, confidentiality is 1/2 and a non-ping-pong completion needs a forged signature or a
   -- forged AEAD confirmation.
   have hIdealHop : |pIdeal - 1 / 2| ≤ εsig + q * εaead :=
-    idealHop_bound P msg hasOPK hidKEM A q hq εsig εaead hsig haead
+    idealHop_bound P msg hasOPK hidKEM A q hq εsig εaead hverifyDet hsig haead
   calc |pReal - 1 / 2|
       ≤ |pReal - pIdeal| + |pIdeal - 1 / 2| := abs_sub_le _ _ _
     _ ≤ q * (εddh + εkdf) + (εsig + q * εaead) := add_le_add hKeyHop hIdealHop
