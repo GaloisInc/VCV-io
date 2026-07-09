@@ -2161,6 +2161,42 @@ private lemma schemeForger_authBreak_verified [Field F] [AddCommGroup G] [Module
     (by simpa [crFI] using hK0)
   simpa [envFI] using hres
 
+private lemma schemeForger_authBreak_verified_default [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (guess : Bool) (uk : InitiatorParameters F G SS SPK Msg K)
+    (tk : RecipientIdentity F G SS SPK SSK K) (pk : SPK) (sk : SSK)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (cl : (UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SS SPK SSK K)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S))
+    (hcl : cl ∈ support
+      ((simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger uk tk)).run))
+    (hK0 : cl.1.1.K0.isSome = true) :
+    true ∈ support (P.sig.verify uk.sigpkB
+      (extractForgery guess cl.1.2.2.1.challenge.transcript).1
+      (extractForgery guess cl.1.2.2.1.challenge.transcript).2) := by
+  have hmem : (fun r => (r.1, (r.2.1, envSig P msg hasOPK (pk, sk) r.2.2.1,
+        (⟨tk.ikB, (pk, sk), tk.spkB, tk.kdf⟩ : RecipientIdentity F G SS SPK SSK K)))) (Prod.fst cl)
+      ∈ support (Prod.fst <$> (simulateQ
+        ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+            (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger uk
+          ⟨tk.ikB, (pk, sk), tk.spkB, tk.kdf⟩)).run) := by
+    rw [← fst_run_challengeSession_sigkB P msg hasOPK uk tk (pk, sk) pk sk A]
+    exact (support_map _ _).ge
+      (Set.mem_image_of_mem _ ((support_map _ _).ge (Set.mem_image_of_mem _ hcl)))
+  rw [support_map] at hmem
+  obtain ⟨clr, hclr, hclr_eq⟩ := hmem
+  have hres := schemeForger_authBreak_verified P msg hasOPK guess uk
+    ⟨tk.ikB, (pk, sk), tk.spkB, tk.kdf⟩ pk sk rfl A clr hclr (by rw [hclr_eq]; exact hK0)
+  rw [hclr_eq] at hres
+  simpa [envSig] using hres
+
 private lemma probOutput_guess_half {E : Type} (p : ProbComp (Bool × E)) (cond : E → Bool) :
     Pr[= true | do
       let b ← $ᵗ Bool
@@ -2358,6 +2394,205 @@ private lemma exp_eq_half_add_authBreak [Field F] [AddCommGroup G] [Module F G] 
     dsimp only
     exact exp_per_env P msg hasOPK A st env tk
 
+private lemma two_mul_probOutput_bind_uniformBool {γ : Type} (mc : ProbComp γ)
+    (g : γ → Bool → ProbComp Bool) :
+    2 * Pr[= true | do let x ← mc; let b ← $ᵗ Bool; g x b]
+      = Pr[= true | do let x ← mc; g x true] + Pr[= true | do let x ← mc; g x false] := by
+  rw [probOutput_bind_eq_tsum mc, probOutput_bind_eq_tsum mc, probOutput_bind_eq_tsum mc,
+    ← ENNReal.tsum_mul_left, ← ENNReal.tsum_add]
+  refine tsum_congr fun x => ?_
+  rw [probOutput_bind_uniformBool, mul_comm (2 : ℝ≥0∞), mul_assoc,
+    ENNReal.div_mul_cancel (by norm_num) (by norm_num), mul_add]
+
+private lemma probOutput_reorder5 {α β γ δ ε : Type}
+    (ma : ProbComp α) (mb : ProbComp β) (mc : ProbComp γ) (md : ProbComp δ) (me : ProbComp ε)
+    (f : α → β → γ → δ → ε → ProbComp Bool) :
+    Pr[= true | do let a ← ma; let b ← mb; let c ← mc; let d ← md; let e ← me; f a b c d e]
+      = Pr[= true | do let d ← md; let b ← mb; let c ← mc; let e ← me; let a ← ma; f a b c d e]
+      := by
+  rw [probOutput_bind_congr' ma true (fun a => probOutput_bind_congr' mb true (fun b =>
+        probOutput_bind_bind_swap mc md (fun c d => me >>= fun e => f a b c d e) true))]
+  rw [probOutput_bind_congr' ma true (fun a =>
+        probOutput_bind_bind_swap mb md (fun b d => mc >>= fun c => me >>= fun e => f a b c d e)
+          true)]
+  rw [probOutput_bind_bind_swap ma md
+        (fun a d => mb >>= fun b => mc >>= fun c => me >>= fun e => f a b c d e) true]
+  rw [probOutput_bind_congr' md true (fun d =>
+        probOutput_bind_bind_swap ma mb (fun a b => mc >>= fun c => me >>= fun e => f a b c d e)
+          true)]
+  rw [probOutput_bind_congr' md true (fun d => probOutput_bind_congr' mb true (fun b =>
+        probOutput_bind_bind_swap ma mc (fun a c => me >>= fun e => f a b c d e) true))]
+  rw [probOutput_bind_congr' md true (fun d => probOutput_bind_congr' mb true (fun b =>
+        probOutput_bind_congr' mc true (fun c =>
+          probOutput_bind_bind_swap ma me (fun a e => f a b c d e) true)))]
+
+noncomputable def forgerChallenge [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    ProbComp ((UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SS SPK SSK K)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) := do
+  let kdf ← ($ᵗ (KeyMaterial G SS → K × K × K) : ProbComp _)
+  let ikA ← dhKeygen P.gen
+  let ikB ← dhKeygen P.gen
+  let sigkB ← P.sig.keygen
+  let spkB ← dhKeygen P.gen
+  (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+      (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle sigkB.1 sigkB.2)
+    (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger
+      ⟨ikA, ikB.1, sigkB.1, msg, kdf⟩ ⟨ikB, (sigkB.1, default), spkB, kdf⟩)).run
+
+def authBreakPred [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (cl : (UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SS SPK SSK K)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) : Bool :=
+  cl.1.1.K0.isSome && !UAKE.isPingPong cl.1.1
+
+def bothQueriedPred [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (cl : (UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SS SPK SSK K)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) : Bool :=
+  cl.2.wasQueried (extractForgery true cl.1.2.2.1.challenge.transcript).1 &&
+    cl.2.wasQueried (extractForgery false cl.1.2.2.1.challenge.transcript).1
+
+def forgerWin [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (pk : SPK) (g : Bool)
+    (cl : (UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SS SPK SSK K)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) : ProbComp Bool := do
+  let fs := extractForgery g cl.1.2.2.1.challenge.transcript
+  let verified ← P.sig.verify pk fs.1 fs.2
+  pure (!cl.2.wasQueried fs.1 && verified)
+
+noncomputable def forgerChallengeWin [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (g : Bool) : ProbComp Bool := do
+  let kdf ← ($ᵗ (KeyMaterial G SS → K × K × K) : ProbComp _)
+  let ikA ← dhKeygen P.gen
+  let ikB ← dhKeygen P.gen
+  let sigkB ← P.sig.keygen
+  let spkB ← dhKeygen P.gen
+  let cl ← (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+      (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle sigkB.1 sigkB.2)
+    (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger
+      ⟨ikA, ikB.1, sigkB.1, msg, kdf⟩ ⟨ikB, (sigkB.1, default), spkB, kdf⟩)).run
+  forgerWin P msg hasOPK A sigkB.1 g cl
+
+private lemma freshRun_le [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (pk : SPK)
+    (rc : ProbComp ((UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SS SPK SSK K)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)))
+    (hver : ∀ cl ∈ support rc, cl.1.1.K0.isSome = true → ∀ g,
+      P.sig.verify pk (extractForgery g cl.1.2.2.1.challenge.transcript).1
+        (extractForgery g cl.1.2.2.1.challenge.transcript).2 = pure true) :
+    Pr[= true | rc >>= fun cl =>
+        pure (authBreakPred P msg hasOPK A cl && !bothQueriedPred P msg hasOPK A cl)]
+      ≤ Pr[= true | rc >>= fun cl => forgerWin P msg hasOPK A pk true cl]
+        + Pr[= true | rc >>= fun cl => forgerWin P msg hasOPK A pk false cl] := by
+  refine probOutput_bind_congr_le_add fun cl hcl => ?_
+  rcases hab : (authBreakPred P msg hasOPK A cl && !bothQueriedPred P msg hasOPK A cl) with _ | _
+  · simp
+  · simp only [authBreakPred, bothQueriedPred, Bool.and_eq_true, Bool.not_eq_true'] at hab
+    obtain ⟨⟨hK0, -⟩, hnb⟩ := hab
+    simp only [forgerWin, hver cl hcl hK0, pure_bind, Bool.and_true, probOutput_pure]
+    simp only [Bool.and_eq_false_iff] at hnb
+    rcases hnb with h | h <;> simp [h]
+
+private lemma idealAuthBreak_eq_authBreakPred [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    idealAuthBreak P msg hasOPK A =
+      Pr[= true | (forgerChallenge P msg hasOPK A) >>= fun cl =>
+        pure (authBreakPred P msg hasOPK A cl)] := by
+  rw [idealAuthBreak_eq_forger P msg hasOPK A]
+  simp only [forgerChallenge, authBreakPred, bind_assoc, bind_map_left]
+  rfl
+
+private lemma idealAuthBreak_partition [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    idealAuthBreak P msg hasOPK A =
+      Pr[= true | (forgerChallenge P msg hasOPK A) >>= fun cl =>
+          pure (authBreakPred P msg hasOPK A cl && bothQueriedPred P msg hasOPK A cl)]
+      + Pr[= true | (forgerChallenge P msg hasOPK A) >>= fun cl =>
+          pure (authBreakPred P msg hasOPK A cl && !bothQueriedPred P msg hasOPK A cl)] := by
+  rw [idealAuthBreak_eq_authBreakPred P msg hasOPK A]
+  exact probOutput_true_and_partition (forgerChallenge P msg hasOPK A)
+    (authBreakPred P msg hasOPK A) (bothQueriedPred P msg hasOPK A)
+
+private lemma two_mul_uniformBool (f : Bool → ProbComp Bool) :
+    2 * Pr[= true | do let g ← ($ᵗ Bool : ProbComp _); f g]
+      = Pr[= true | f true] + Pr[= true | f false] := by
+  rw [probOutput_bind_uniformBool, mul_comm, ENNReal.div_mul_cancel (by norm_num) (by norm_num)]
+
+private lemma two_mul_bind_lift {α : Type} (m : ProbComp α)
+    (P Q R : α → ProbComp Bool)
+    (h : ∀ a, 2 * Pr[= true | P a] = Pr[= true | Q a] + Pr[= true | R a]) :
+    2 * Pr[= true | m >>= P] = Pr[= true | m >>= Q] + Pr[= true | m >>= R] := by
+  simp only [probOutput_bind_eq_tsum]
+  rw [← ENNReal.tsum_add, ← ENNReal.tsum_mul_left]
+  exact tsum_congr fun a => by rw [← mul_add, ← h a]; ring
+
+private lemma two_mul_sigForger_advantage_eq [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [SampleableType (KeyMaterial G SS → K × K × K)]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    2 * (sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp
+      = Pr[= true | forgerChallengeWin P msg hasOPK A true]
+        + Pr[= true | forgerChallengeWin P msg hasOPK A false] := by
+  rw [sigForger_advantage_eq P msg hasOPK A,
+    ← probOutput_reorder5 (($ᵗ (KeyMaterial G SS → K × K × K) : ProbComp _)) (dhKeygen P.gen)
+      (dhKeygen P.gen) (P.sig.keygen) (dhKeygen P.gen)]
+  simp only [forgerChallengeWin, forgerWin]
+  refine two_mul_bind_lift _ _ _ _ (fun kdf => ?_)
+  refine two_mul_bind_lift _ _ _ _ (fun ikA => ?_)
+  refine two_mul_bind_lift _ _ _ _ (fun ikB => ?_)
+  refine two_mul_bind_lift _ _ _ _ (fun sigkB => ?_)
+  refine two_mul_bind_lift _ _ _ _ (fun spkB => ?_)
+  exact two_mul_uniformBool _
+
 private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType (KeyMaterial G SS → K × K × K)]
     [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
@@ -2381,8 +2616,36 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
     have hbundle : (idealAuthBreak P msg hasOPK A).toReal
         ≤ 2 * ((sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp).toReal
           + 2 * (q * εaead) := by
-      rw [idealAuthBreak_eq_forger P msg hasOPK A, sigForger_advantage_eq P msg hasOPK A]
-      sorry
+      have hfresh : Pr[= true | (forgerChallenge P msg hasOPK A) >>= fun cl =>
+            pure (authBreakPred P msg hasOPK A cl && !bothQueriedPred P msg hasOPK A cl)]
+          ≤ 2 * (sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp := by
+        have hbridge : 2 * (sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp
+            = Pr[= true | forgerChallengeWin P msg hasOPK A true]
+              + Pr[= true | forgerChallengeWin P msg hasOPK A false] :=
+          two_mul_sigForger_advantage_eq P msg hasOPK A
+        rw [hbridge]
+        simp only [forgerChallenge, forgerChallengeWin, bind_assoc]
+        refine probOutput_bind_congr_le_add fun kdf _ => ?_
+        refine probOutput_bind_congr_le_add fun ikA _ => ?_
+        refine probOutput_bind_congr_le_add fun ikB _ => ?_
+        refine probOutput_bind_congr_le_add fun sigkB _ => ?_
+        refine probOutput_bind_congr_le_add fun spkB _ => ?_
+        exact freshRun_le P msg hasOPK A sigkB.1 _ (fun cl hcl hK0 g =>
+          verify_pure_true_of_mem_support P hverifyDet _ _ _
+            (schemeForger_authBreak_verified_default P msg hasOPK g _ _
+              sigkB.1 sigkB.2 A cl hcl hK0))
+      have hstale : (Pr[= true | (forgerChallenge P msg hasOPK A) >>= fun cl =>
+            pure (authBreakPred P msg hasOPK A cl && bothQueriedPred P msg hasOPK A cl)]).toReal
+          ≤ 2 * (q * εaead) := by
+        sorry
+      have hadvne : (sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp ≠ ⊤ := by
+        rw [sigForger_advantage_eq P msg hasOPK A]; exact probOutput_ne_top
+      have hfr := (ENNReal.toReal_le_toReal probOutput_ne_top
+        (ENNReal.mul_ne_top (by norm_num) hadvne)).mpr hfresh
+      rw [ENNReal.toReal_mul, ENNReal.toReal_ofNat] at hfr
+      rw [idealAuthBreak_partition P msg hasOPK A,
+        ENNReal.toReal_add probOutput_ne_top probOutput_ne_top]
+      linarith [hstale, hfr]
     calc (idealAuthBreak P msg hasOPK A).toReal
         ≤ 2 * ((sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp).toReal
             + 2 * (q * εaead) := hbundle
