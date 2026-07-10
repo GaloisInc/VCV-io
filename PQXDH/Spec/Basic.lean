@@ -3,7 +3,7 @@ Copyright (c) 2026 Galois Inc. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Ben Hamlin
 -/
-import PQXDH.AEAD
+import PQXDH.ToVCVio.CryptoFoundations.AEAD
 import VCVio.CryptoFoundations.KeyEncapMech
 import VCVio.CryptoFoundations.SignatureAlg
 
