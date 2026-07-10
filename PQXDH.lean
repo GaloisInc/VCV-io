@@ -9,3 +9,5 @@ import PQXDH.DH
 import PQXDH.Spec.Basic
 import PQXDH.Spec.UAKE
 import PQXDH.ToMathlib
+import PQXDH.ToVCVio.CryptoFoundations.SignatureAlg
+import PQXDH.ToVCVio.OracleComp.QueryTracking.Structures
