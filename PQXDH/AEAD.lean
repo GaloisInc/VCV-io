@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Ben Hamlin
 -/
 import VCVio.CryptoFoundations.SecExp
+import VCVio.OracleComp.QueryTracking.QueryBound
 import VCVio.OracleComp.SimSemantics.Append
 import VCVio.OracleComp.SimSemantics.SimulateQ
 
@@ -59,17 +60,59 @@ def ctxtImpl (aead : Scheme ProbComp Msg Key AD C) (k : Key) :
     modify (fun log => log ++ [(p.1, c)])
     pure c
 
-structure IND_CTXT_Adversary (_aead : Scheme ProbComp Msg Key AD C) where
+structure INT_CTXT_Adversary (_aead : Scheme ProbComp Msg Key AD C) where
   run : OracleComp (unifSpec + ((AD × Msg) →ₒ C)) (AD × C)
 
-def IND_CTXT_Game (aead : Scheme ProbComp Msg Key AD C)
-    (A : IND_CTXT_Adversary aead) : ProbComp Bool := do
+def INT_CTXT_Game (aead : Scheme ProbComp Msg Key AD C)
+    (A : INT_CTXT_Adversary aead) : ProbComp Bool := do
   let k ← $ᵗ Key
   let (forge, log) ← (simulateQ (withUnif (ctxtImpl aead k)) A.run).run []
   pure ((aead.decrypt k forge.1 forge.2).isSome && decide (forge ∉ log))
 
-noncomputable def IND_CTXT_Advantage (aead : Scheme ProbComp Msg Key AD C)
-    (A : IND_CTXT_Adversary aead) : ℝ :=
-  (Pr[= true | IND_CTXT_Game aead A]).toReal
+noncomputable def INT_CTXT_Advantage (aead : Scheme ProbComp Msg Key AD C)
+    (A : INT_CTXT_Adversary aead) : ℝ :=
+  (Pr[= true | INT_CTXT_Game aead A]).toReal
+
+def ctxtVfImpl (aead : Scheme ProbComp Msg Key AD C) (k : Key) :
+    QueryImpl (((AD × Msg) →ₒ C) + ((AD × C) →ₒ Bool))
+      (StateT (List (AD × C) × Bool) ProbComp) :=
+  (show QueryImpl ((AD × Msg) →ₒ C) (StateT (List (AD × C) × Bool) ProbComp) from
+    fun p => do
+      let c ← (aead.encrypt k p.1 p.2 : ProbComp C)
+      modify (fun s => (s.1 ++ [(p.1, c)], s.2))
+      pure c) +
+  (show QueryImpl ((AD × C) →ₒ Bool) (StateT (List (AD × C) × Bool) ProbComp) from
+    fun p => do
+      let ok := (aead.decrypt k p.1 p.2).isSome
+      modify (fun s => (s.1, s.2 || (ok && decide (p ∉ s.1))))
+      pure ok)
+
+structure INT_CTXT_VF_Adversary (_aead : Scheme ProbComp Msg Key AD C) where
+  run : OracleComp (unifSpec + (((AD × Msg) →ₒ C) + ((AD × C) →ₒ Bool))) Unit
+
+def INT_CTXT_VF_Game (aead : Scheme ProbComp Msg Key AD C)
+    (A : INT_CTXT_VF_Adversary aead) : ProbComp Bool := do
+  let k ← $ᵗ Key
+  let (_, _, won) ← (simulateQ (withUnif (ctxtVfImpl aead k)) A.run).run ([], false)
+  pure won
+
+noncomputable def INT_CTXT_VF_Advantage (aead : Scheme ProbComp Msg Key AD C)
+    (A : INT_CTXT_VF_Adversary aead) : ℝ :=
+  (Pr[= true | INT_CTXT_VF_Game aead A]).toReal
+
+omit [DecidableEq Msg] in
+theorem INT_CTXT_Advantage_le_INT_CTXT_VF_Advantage
+    (aead : Scheme ProbComp Msg Key AD C) (A : INT_CTXT_Adversary aead) :
+    ∃ B : INT_CTXT_VF_Adversary aead,
+      INT_CTXT_Advantage aead A ≤ INT_CTXT_VF_Advantage aead B := by
+  sorry
+
+theorem INT_CTXT_VF_Advantage_le_mul_INT_CTXT_Advantage
+    (aead : Scheme ProbComp Msg Key AD C) (hcorrect : PerfectlyCorrect aead)
+    (B : INT_CTXT_VF_Adversary aead) (v : ℕ)
+    (hv : B.run.IsQueryBoundP (· matches Sum.inr (Sum.inr _)) v) :
+    ∃ A : INT_CTXT_Adversary aead,
+      INT_CTXT_VF_Advantage aead B ≤ (v : ℝ) * INT_CTXT_Advantage aead A := by
+  sorry
 
 end AEAD

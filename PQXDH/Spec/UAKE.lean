@@ -2605,8 +2605,8 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
     (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
     (hsig : ∀ B : P.sig.unforgeableAdv,
       (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
-    (haead : ∀ B : AEAD.IND_CTXT_Adversary P.aead,
-      AEAD.IND_CTXT_Advantage P.aead B ≤ εaead) :
+    (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
+      AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead) :
     |(Pr[= true | UAKE.Exp A.toIdeal]).toReal - 1 / 2| ≤ εsig + q * εaead := by
   haveI : Inhabited G := ⟨0⟩
   have hdecomp : Pr[= true | UAKE.Exp A.toIdeal]
@@ -2676,8 +2676,8 @@ theorem uakeInitiator_secure_pq
       (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hkem : ∀ B : P.pqkem.IND_CCA_Adversary,
       P.pqkem.IND_CCA_Advantage ProbCompRuntime.probComp B ≤ εkem)
-    (haead : ∀ B : AEAD.IND_CTXT_Adversary P.aead,
-      AEAD.IND_CTXT_Advantage P.aead B ≤ εaead)
+    (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
+      AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead)
     (hkdf : ∀ (DH1 DH2 DH3 : G) (DH4 : Option G),
       KdfHidesInput (K := K)
         (do let ss ← $ᵗ SS; pure (DH1, DH2, DH3, DH4, ss)) εkdf) :
@@ -2714,8 +2714,8 @@ theorem uakeInitiator_secure_dh
       (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hddh : ∀ D : DiffieHellman.DDHAdversary F G,
       DiffieHellman.ddhDistAdvantage P.gen D ≤ εddh)
-    (haead : ∀ B : AEAD.IND_CTXT_Adversary P.aead,
-      AEAD.IND_CTXT_Advantage P.aead B ≤ εaead)
+    (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
+      AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead)
     (hkdf : ∀ (DH1 DH2 : G) (DH4 : Option G) (ss : SS),
       KdfHidesInput (K := K)
         (do let c ← $ᵗ F; pure (DH1, DH2, c • P.gen, DH4, ss)) εkdf) :
