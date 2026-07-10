@@ -24,6 +24,7 @@ structure Parameters (F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK : Type) wher
   pqkem : KEMScheme ProbComp SS PQPK PQSK CT
   sig : SignatureAlg ProbComp (G ⊕ PQPK) SPK SSK S
   aead : AEAD.Scheme ProbComp Msg K (G × G × PQPK) C
+  kdf : KeyMaterial G SS → K × K × K
   idEC : G → IdC
   idKEM : PQPK → IdK
 
@@ -50,13 +51,11 @@ structure InitiatorParameters (F G SS SPK Msg K : Type) where
   Sec. 4 as a simplifying assumption used in previous analyses. -/
   sigpkB : SPK
   msg : Msg
-  kdf : KeyMaterial G SS → K × K × K
 
 structure RecipientIdentity (F G SS SPK SSK K : Type) where
   ikB : G × F
   sigkB : SPK × SSK
   spkB : G × F
-  kdf : KeyMaterial G SS → K × K × K
 
 structure RecipientParameters (F G SS PQPK PQSK SPK SSK K : Type) where
   ikB : G × F
@@ -64,7 +63,6 @@ structure RecipientParameters (F G SS PQPK PQSK SPK SSK K : Type) where
   spkB : G × F
   opkB : Option (G × F)
   pqpkB : PQPK × PQSK
-  kdf : KeyMaterial G SS → K × K × K
 
 structure PreKeyBundle (G PQPK S IdC IdK : Type) where
   ikB : G
@@ -92,17 +90,15 @@ structure SessionContext (G PQPK Msg K : Type) where
   msg : Msg
 
 def setup [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
-    [SampleableType (KeyMaterial G SS → K × K × K)]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) :
     ProbComp (InitiatorParameters F G SS SPK Msg K ×
       RecipientIdentity F G SS SPK SSK K) := do
-  let kdf ← $ᵗ (KeyMaterial G SS → K × K × K)
   let ikA ← dhKeygen P.gen
   let ikB ← dhKeygen P.gen
   let sigkB ← P.sig.keygen
   let spkB ← dhKeygen P.gen
-  return ({ ikA := ikA, ikB := ikB.1, sigpkB := sigkB.1, msg := msg, kdf := kdf },
-    { ikB := ikB, sigkB := sigkB, spkB := spkB, kdf := kdf })
+  return ({ ikA := ikA, ikB := ikB.1, sigpkB := sigkB.1, msg := msg },
+    { ikB := ikB, sigkB := sigkB, spkB := spkB })
 
 def publish (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
     (p : RecipientParameters F G SS PQPK PQSK SPK SSK K) :
@@ -138,7 +134,7 @@ def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [Decidab
     indistinguishability, since an attacker can distinguish the key from random
     by using the candidate key to decrypt the initial message and checking
     whether it succeeds. -/
-  let (SK, KA, KB) := p.kdf (DH1, DH2, DH3, DH4, SS)
+  let (SK, KA, KB) := P.kdf (DH1, DH2, DH3, DH4, SS)
   let AD := (p.ikA.1, bundle.ikB, bundle.pqpkB.1)
   let ctxt ← P.aead.encrypt KA AD p.msg
   return some ({ ikA := p.ikA.1
@@ -162,7 +158,7 @@ def accept [Field F] [AddCommGroup G] [Module F G] [DecidableEq IdC] [DecidableE
   let DH2 := DH p.ikB.2 msg.ekA
   let DH3 := DH p.spkB.2 msg.ekA
   let DH4 := p.opkB.map fun opk => DH opk.2 msg.ekA
-  let (SK, KA, KB) := p.kdf (DH1, DH2, DH3, DH4, SS)
+  let (SK, KA, KB) := P.kdf (DH1, DH2, DH3, DH4, SS)
   let AD := (msg.ikA, p.ikB.1, p.pqpkB.1)
   match P.aead.decrypt KA AD msg.ctxt with
   | some m => return some { sk := SK, kb := KB, ad := AD, msg := m }
