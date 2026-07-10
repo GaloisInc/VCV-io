@@ -6,6 +6,7 @@ Authors: Ben Hamlin
 import PQXDH.Spec.Basic
 import PQXDH.AKE.UAKE.Basic
 import PQXDH.ToMathlib
+import PQXDH.ToVCVio.CryptoFoundations.SignatureAlg
 import VCVio.CryptoFoundations.HardnessAssumptions.DiffieHellman
 import VCVio.CryptoFoundations.PRF
 import VCVio.OracleComp.QueryTracking.QueryBound
@@ -1567,14 +1568,14 @@ private lemma idealAuthBreak_eq_forger [Field F] [AddCommGroup G] [Module F G] [
   refine bind_congr fun r => ?_
   exact congrArg pure (crFI_authBreak P msg hasOPK r.1.1)
 
-private lemma sigForger_advantage_eq [Field F] [AddCommGroup G] [Module F G]
+private lemma sigForger_strongAdvantage_eq [Field F] [AddCommGroup G] [Module F G]
     [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq S]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
-    ((sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp) =
+    ((sigForger P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp) =
     Pr[= true | do
       let pksk ← P.sig.keygen
       let ikA ← dhKeygen P.gen
@@ -1588,8 +1589,8 @@ private lemma sigForger_advantage_eq [Field F] [AddCommGroup G] [Module F G]
           ⟨ikA, ikB.1, pksk.1, msg⟩ ⟨ikB, (pksk.1, default), spkB⟩)).run
       let fs := extractForgery guess cl.1.2.2.1.challenge.transcript
       let verified ← P.sig.verify pksk.1 fs.1 fs.2
-      pure (!cl.2.wasQueried fs.1 && verified)] := by
-  unfold SignatureAlg.unforgeableAdv.advantage SignatureAlg.unforgeableExp
+      pure (!cl.2.wasQueriedWith fs.1 fs.2 && verified)] := by
+  unfold SignatureAlg.unforgeableAdv.strongAdvantage SignatureAlg.stronglyUnforgeableExp
   rw [probOutput_probComp_evalDist]
   simp only [sigForger, run_sim_liftM_bind, run_sim_bind_pure, bind_assoc, pure_bind]
   refine congrArg (fun c => probOutput c true) ?_
@@ -2415,8 +2416,10 @@ def bothQueriedPred [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     (cl : (UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
         (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SS SPK SSK K)) ×
       QueryLog ((G ⊕ PQPK) →ₒ S)) : Bool :=
-  cl.2.wasQueried (extractForgery true cl.1.2.2.1.challenge.transcript).1 &&
-    cl.2.wasQueried (extractForgery false cl.1.2.2.1.challenge.transcript).1
+  cl.2.wasQueriedWith (extractForgery true cl.1.2.2.1.challenge.transcript).1
+      (extractForgery true cl.1.2.2.1.challenge.transcript).2 &&
+    cl.2.wasQueriedWith (extractForgery false cl.1.2.2.1.challenge.transcript).1
+      (extractForgery false cl.1.2.2.1.challenge.transcript).2
 
 def forgerWin [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
@@ -2429,7 +2432,7 @@ def forgerWin [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
       QueryLog ((G ⊕ PQPK) →ₒ S)) : ProbComp Bool := do
   let fs := extractForgery g cl.1.2.2.1.challenge.transcript
   let verified ← P.sig.verify pk fs.1 fs.2
-  pure (!cl.2.wasQueried fs.1 && verified)
+  pure (!cl.2.wasQueriedWith fs.1 fs.2 && verified)
 
 noncomputable def forgerChallengeWin [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
@@ -2515,17 +2518,17 @@ private lemma two_mul_bind_lift {α : Type} (m : ProbComp α)
   rw [← ENNReal.tsum_add, ← ENNReal.tsum_mul_left]
   exact tsum_congr fun a => by rw [← mul_add, ← h a]; ring
 
-private lemma two_mul_sigForger_advantage_eq [Field F] [AddCommGroup G] [Module F G]
+private lemma two_mul_sigForger_strongAdvantage_eq [Field F] [AddCommGroup G] [Module F G]
     [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
-    2 * (sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp
+    2 * (sigForger P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp
       = Pr[= true | forgerChallengeWin P msg hasOPK A true]
         + Pr[= true | forgerChallengeWin P msg hasOPK A false] := by
-  rw [sigForger_advantage_eq P msg hasOPK A,
+  rw [sigForger_strongAdvantage_eq P msg hasOPK A,
     ← probOutput_reorder4 (dhKeygen P.gen) (dhKeygen P.gen) (P.sig.keygen) (dhKeygen P.gen)]
   simp only [forgerChallengeWin, forgerWin]
   refine two_mul_bind_lift _ _ _ _ (fun ikA => ?_)
@@ -2544,7 +2547,7 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
     (εsig εaead : ℝ)
     (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
     (hsig : ∀ B : P.sig.unforgeableAdv,
-      (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
+      (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
       AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead) :
     |(Pr[= true | UAKE.Exp A.toIdeal]).toReal - 1 / 2| ≤ εsig + q * εaead := by
@@ -2554,15 +2557,15 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
     exp_eq_half_add_authBreak P msg hasOPK A
   have hauth : (idealAuthBreak P msg hasOPK A).toReal ≤ 2 * (εsig + q * εaead) := by
     have hbundle : (idealAuthBreak P msg hasOPK A).toReal
-        ≤ 2 * ((sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp).toReal
+        ≤ 2 * ((sigForger P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp).toReal
           + 2 * (q * εaead) := by
       have hfresh : Pr[= true | (forgerChallenge P msg hasOPK A) >>= fun cl =>
             pure (authBreakPred P msg hasOPK A cl && !bothQueriedPred P msg hasOPK A cl)]
-          ≤ 2 * (sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp := by
-        have hbridge : 2 * (sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp
+          ≤ 2 * (sigForger P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp := by
+        have hbridge : 2 * (sigForger P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp
             = Pr[= true | forgerChallengeWin P msg hasOPK A true]
               + Pr[= true | forgerChallengeWin P msg hasOPK A false] :=
-          two_mul_sigForger_advantage_eq P msg hasOPK A
+          two_mul_sigForger_strongAdvantage_eq P msg hasOPK A
         rw [hbridge]
         simp only [forgerChallenge, forgerChallengeWin, bind_assoc]
         refine probOutput_bind_congr_le_add fun ikA _ => ?_
@@ -2577,8 +2580,8 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
             pure (authBreakPred P msg hasOPK A cl && bothQueriedPred P msg hasOPK A cl)]).toReal
           ≤ 2 * (q * εaead) := by
         sorry
-      have hadvne : (sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp ≠ ⊤ := by
-        rw [sigForger_advantage_eq P msg hasOPK A]; exact probOutput_ne_top
+      have hadvne : (sigForger P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp ≠ ⊤ := by
+        rw [sigForger_strongAdvantage_eq P msg hasOPK A]; exact probOutput_ne_top
       have hfr := (ENNReal.toReal_le_toReal probOutput_ne_top
         (ENNReal.mul_ne_top (by norm_num) hadvne)).mpr hfresh
       rw [ENNReal.toReal_mul, ENNReal.toReal_ofNat] at hfr
@@ -2586,7 +2589,7 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
         ENNReal.toReal_add probOutput_ne_top probOutput_ne_top]
       linarith [hstale, hfr]
     calc (idealAuthBreak P msg hasOPK A).toReal
-        ≤ 2 * ((sigForger P msg hasOPK A).advantage ProbCompRuntime.probComp).toReal
+        ≤ 2 * ((sigForger P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp).toReal
             + 2 * (q * εaead) := hbundle
       _ ≤ 2 * εsig + 2 * (q * εaead) := by
           gcongr
@@ -2611,7 +2614,7 @@ theorem uakeInitiator_secure_pq
     (εsig εkem εaead εkdf : ℝ)
     (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
     (hsig : ∀ B : P.sig.unforgeableAdv,
-      (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
+      (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hkem : ∀ B : P.pqkem.IND_CCA_Adversary,
       P.pqkem.IND_CCA_Advantage ProbCompRuntime.probComp B ≤ εkem)
     (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
@@ -2647,7 +2650,7 @@ theorem uakeInitiator_secure_dh
     (εsig εddh εaead εkdf : ℝ)
     (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
     (hsig : ∀ B : P.sig.unforgeableAdv,
-      (B.advantage ProbCompRuntime.probComp).toReal ≤ εsig)
+      (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hddh : ∀ D : DiffieHellman.DDHAdversary F G,
       DiffieHellman.ddhDistAdvantage P.gen D ≤ εddh)
     (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
