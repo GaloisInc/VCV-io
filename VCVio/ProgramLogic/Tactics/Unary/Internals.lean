@@ -29,35 +29,35 @@ The equality theorem `wp_pure` remains the canonical rewrite rule.
 This lower-bound form lets raw `wp` goals use the cached `@[vcspec]`
 backward-rule path before falling back to `@[wpStep]`. -/
 theorem wp_pure_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {α : Type} (x : α)
+    [IsUniformSpec spec] {α : Type} (x : α)
     (post : α → ENNReal) :
     post x ≤ wp (pure x : OracleComp spec α) post := by
   rw [OracleComp.ProgramLogic.wp_pure]
 
 /-- Cached raw-`wp` structural leaf for functorial map. -/
 theorem wp_map_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {α β : Type}
+    [IsUniformSpec spec] {α β : Type}
     (f : α → β) (oa : OracleComp spec α) (post : β → ENNReal) :
     wp oa (post ∘ f) ≤ wp (f <$> oa) post := by
   rw [OracleComp.ProgramLogic.wp_map]
 
 /-- Cached raw-`wp` structural leaf for conditionals. -/
 theorem wp_ite_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {α : Type} (c : Prop) [Decidable c]
+    [IsUniformSpec spec] {α : Type} (c : Prop) [Decidable c]
     (oa ob : OracleComp spec α) (post : α → ENNReal) :
     (if c then wp oa post else wp ob post) ≤ wp (if c then oa else ob) post := by
   rw [OracleComp.ProgramLogic.wp_ite]
 
 /-- Cached raw-`wp` structural leaf for dependent conditionals. -/
 theorem wp_dite_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {α : Type} (c : Prop) [Decidable c]
+    [IsUniformSpec spec] {α : Type} (c : Prop) [Decidable c]
     (oa : c → OracleComp spec α) (ob : ¬c → OracleComp spec α) (post : α → ENNReal) :
     (if h : c then wp (oa h) post else wp (ob h) post) ≤ wp (dite c oa ob) post := by
   rw [OracleComp.ProgramLogic.wp_dite]
 
 /-- Cached raw-`wp` structural leaf for `replicate (n + 1)`. -/
 theorem wp_replicate_succ_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {α : Type}
+    [IsUniformSpec spec] {α : Type}
     (oa : OracleComp spec α) (n : Nat) (post : List α → ENNReal) :
     wp oa (fun x => wp (oa.replicate n) (fun xs => post (x :: xs))) ≤
       wp (oa.replicate (n + 1)) post := by
@@ -65,7 +65,7 @@ theorem wp_replicate_succ_le_vcspec {ι : Type u} {spec : OracleSpec ι}
 
 /-- Cached raw-`wp` structural leaf for `List.mapM` on `x :: xs`. -/
 theorem wp_list_mapM_cons_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {α β : Type}
+    [IsUniformSpec spec] {α β : Type}
     (x : α) (xs : List α) (f : α → OracleComp spec β) (post : List β → ENNReal) :
     wp (f x) (fun y => wp (xs.mapM f) (fun ys => post (y :: ys))) ≤
       wp ((x :: xs).mapM f) post := by
@@ -73,7 +73,7 @@ theorem wp_list_mapM_cons_le_vcspec {ι : Type u} {spec : OracleSpec ι}
 
 /-- Cached raw-`wp` structural leaf for `List.foldlM` on `x :: xs`. -/
 theorem wp_list_foldlM_cons_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {α σ : Type}
+    [IsUniformSpec spec] {α σ : Type}
     (x : α) (xs : List α) (f : σ → α → OracleComp spec σ)
     (init : σ) (post : σ → ENNReal) :
     wp (f init x) (fun s => wp (xs.foldlM f s) post) ≤
@@ -82,7 +82,7 @@ theorem wp_list_foldlM_cons_le_vcspec {ι : Type u} {spec : OracleSpec ι}
 
 /-- Cached raw-`wp` structural leaf for oracle queries. -/
 theorem wp_query_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec]
+    [IsUniformSpec spec]
     (t : spec.Domain) (post : spec.Range t → ENNReal) :
     (∑' u : spec.Range t, (1 / Fintype.card (spec.Range t) : ENNReal) * post u) ≤
       wp (query t : OracleComp spec (spec.Range t)) post := by
@@ -90,7 +90,7 @@ theorem wp_query_le_vcspec {ι : Type u} {spec : OracleSpec ι}
 
 /-- Cached raw-`wp` structural leaf for `HasQuery.query`. -/
 theorem wp_HasQuery_query_le_vcspec {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec]
+    [IsUniformSpec spec]
     (t : spec.Domain) (post : spec.Range t → ENNReal) :
     (∑' u : spec.Range t, (1 / Fintype.card (spec.Range t) : ENNReal) * post u) ≤
       wp (spec := spec) (HasQuery.query t : OracleComp spec (spec.Range t)) post := by
@@ -133,11 +133,7 @@ theorem wp_StateT_get_layer {m : Type u → Type v} {Pred EPred : Type u}
     {σ : Type u} (post : σ → σ → Pred) (epost : EPred) :
     Std.Do'.wp (MonadStateOf.get : StateT σ m σ) post epost =
       fun s => Std.Do'.wp (pure (s, s) : m (σ × σ))
-        (fun p : σ × σ => post p.1 p.2) epost := by
-  funext s
-  change Std.Do'.wp ((MonadStateOf.get : StateT σ m σ).run s)
-      (fun p : σ × σ => post p.1 p.2) epost =
-    Std.Do'.wp (pure (s, s) : m (σ × σ)) (fun p : σ × σ => post p.1 p.2) epost
+        (fun p : σ × σ => post p.1 p.2) epost :=
   rfl
 
 theorem wp_StateT_get_layer' {m : Type u → Type v} {Pred EPred : Type u}
@@ -145,11 +141,7 @@ theorem wp_StateT_get_layer' {m : Type u → Type v} {Pred EPred : Type u}
     {σ : Type u} (post : σ → σ → Pred) (epost : EPred) :
     Std.Do'.wp (StateT.get : StateT σ m σ) post epost =
       fun s => Std.Do'.wp (pure (s, s) : m (σ × σ))
-        (fun p : σ × σ => post p.1 p.2) epost := by
-  funext s
-  change Std.Do'.wp ((StateT.get : StateT σ m σ).run s)
-      (fun p : σ × σ => post p.1 p.2) epost =
-    Std.Do'.wp (pure (s, s) : m (σ × σ)) (fun p : σ × σ => post p.1 p.2) epost
+        (fun p : σ × σ => post p.1 p.2) epost :=
   rfl
 
 theorem stdDoTriple_StateT_get_of_rel {m : Type u → Type v} {Pred EPred : Type u}
@@ -171,12 +163,7 @@ theorem wp_StateT_set_layer {m : Type u → Type v} {Pred EPred : Type u}
     {σ : Type u} (s' : σ) (post : PUnit → σ → Pred) (epost : EPred) :
     Std.Do'.wp (MonadStateOf.set s' : StateT σ m PUnit) post epost =
       fun _ => Std.Do'.wp (pure (PUnit.unit, s') : m (PUnit × σ))
-        (fun p : PUnit × σ => post p.1 p.2) epost := by
-  funext s
-  change Std.Do'.wp ((MonadStateOf.set s' : StateT σ m PUnit).run s)
-      (fun p : PUnit × σ => post p.1 p.2) epost =
-    Std.Do'.wp (pure (PUnit.unit, s') : m (PUnit × σ))
-      (fun p : PUnit × σ => post p.1 p.2) epost
+        (fun p : PUnit × σ => post p.1 p.2) epost :=
   rfl
 
 theorem wp_StateT_run_get_layer {m : Type u → Type v} {Pred EPred : Type u}
@@ -184,7 +171,7 @@ theorem wp_StateT_run_get_layer {m : Type u → Type v} {Pred EPred : Type u}
     {σ : Type u} (s : σ) (post : σ → σ → Pred) (epost : EPred) :
     Std.Do'.wp ((MonadStateOf.get : StateT σ m σ).run s)
         (fun p : σ × σ => post p.1 p.2) epost =
-      Std.Do'.wp (pure (s, s) : m (σ × σ)) (fun p : σ × σ => post p.1 p.2) epost := by
+      Std.Do'.wp (pure (s, s) : m (σ × σ)) (fun p : σ × σ => post p.1 p.2) epost :=
   rfl
 
 theorem wp_StateT_run_get_layer' {m : Type u → Type v} {Pred EPred : Type u}
@@ -192,7 +179,7 @@ theorem wp_StateT_run_get_layer' {m : Type u → Type v} {Pred EPred : Type u}
     {σ : Type u} (s : σ) (post : σ → σ → Pred) (epost : EPred) :
     Std.Do'.wp ((StateT.get : StateT σ m σ).run s)
         (fun p : σ × σ => post p.1 p.2) epost =
-      Std.Do'.wp (pure (s, s) : m (σ × σ)) (fun p : σ × σ => post p.1 p.2) epost := by
+      Std.Do'.wp (pure (s, s) : m (σ × σ)) (fun p : σ × σ => post p.1 p.2) epost :=
   rfl
 
 theorem wp_StateT_run_set_layer {m : Type u → Type v} {Pred EPred : Type u}
@@ -201,7 +188,7 @@ theorem wp_StateT_run_set_layer {m : Type u → Type v} {Pred EPred : Type u}
     Std.Do'.wp ((MonadStateOf.set s' : StateT σ m PUnit).run s)
         (fun p : PUnit × σ => post p.1 p.2) epost =
       Std.Do'.wp (pure (PUnit.unit, s') : m (PUnit × σ))
-        (fun p : PUnit × σ => post p.1 p.2) epost := by
+        (fun p : PUnit × σ => post p.1 p.2) epost :=
   rfl
 
 theorem wp_StateT_run_set_layer' {m : Type u → Type v} {Pred EPred : Type u}
@@ -210,7 +197,7 @@ theorem wp_StateT_run_set_layer' {m : Type u → Type v} {Pred EPred : Type u}
     Std.Do'.wp ((StateT.set s' : StateT σ m PUnit).run s)
         (fun p : PUnit × σ => post p.1 p.2) epost =
       Std.Do'.wp (pure (PUnit.unit, s') : m (PUnit × σ))
-        (fun p : PUnit × σ => post p.1 p.2) epost := by
+        (fun p : PUnit × σ => post p.1 p.2) epost :=
   rfl
 
 theorem wp_StateT_map_layer {m : Type u → Type v} {Pred EPred : Type u}
@@ -219,29 +206,21 @@ theorem wp_StateT_map_layer {m : Type u → Type v} {Pred EPred : Type u}
     (epost : EPred) :
     Std.Do'.wp (f <$> x) post epost =
       fun s => Std.Do'.wp ((f <$> x).run s)
-        (fun p : β × σ => post p.1 p.2) epost := by
+        (fun p : β × σ => post p.1 p.2) epost :=
   rfl
 
 theorem wp_ReaderT_read_layer {m : Type u → Type v} {Pred EPred : Type u}
     [Monad m] [Std.Do'.Assertion Pred] [Std.Do'.Assertion EPred] [Std.Do'.WP m Pred EPred]
     {ρ : Type u} (post : ρ → ρ → Pred) (epost : EPred) :
     Std.Do'.wp (MonadReaderOf.read : ReaderT ρ m ρ) post epost =
-      fun r => Std.Do'.wp (pure r : m ρ) (fun a => post a r) epost := by
-  funext r
-  change Std.Do'.wp ((MonadReaderOf.read : ReaderT ρ m ρ).run r)
-      (fun a : ρ => post a r) epost =
-    Std.Do'.wp (pure r : m ρ) (fun a : ρ => post a r) epost
+      fun r => Std.Do'.wp (pure r : m ρ) (fun a => post a r) epost :=
   rfl
 
 theorem wp_ReaderT_read_layer' {m : Type u → Type v} {Pred EPred : Type u}
     [Monad m] [Std.Do'.Assertion Pred] [Std.Do'.Assertion EPred] [Std.Do'.WP m Pred EPred]
     {ρ : Type u} (post : ρ → ρ → Pred) (epost : EPred) :
     Std.Do'.wp (ReaderT.read : ReaderT ρ m ρ) post epost =
-      fun r => Std.Do'.wp (pure r : m ρ) (fun a => post a r) epost := by
-  funext r
-  change Std.Do'.wp ((ReaderT.read : ReaderT ρ m ρ).run r)
-      (fun a : ρ => post a r) epost =
-    Std.Do'.wp (pure r : m ρ) (fun a : ρ => post a r) epost
+      fun r => Std.Do'.wp (pure r : m ρ) (fun a => post a r) epost :=
   rfl
 
 theorem stdDoTriple_ReaderT_read_of_rel {m : Type u → Type v} {Pred EPred : Type u}
@@ -262,7 +241,7 @@ theorem wp_ReaderT_run_read_layer {m : Type u → Type v} {Pred EPred : Type u}
     {ρ : Type u} (r : ρ) (post : ρ → ρ → Pred) (epost : EPred) :
     Std.Do'.wp ((MonadReaderOf.read : ReaderT ρ m ρ).run r) (fun a : ρ => post a r)
         epost =
-      Std.Do'.wp (pure r : m ρ) (fun a : ρ => post a r) epost := by
+      Std.Do'.wp (pure r : m ρ) (fun a : ρ => post a r) epost :=
   rfl
 
 theorem wp_ReaderT_run_read_layer' {m : Type u → Type v} {Pred EPred : Type u}
@@ -270,11 +249,11 @@ theorem wp_ReaderT_run_read_layer' {m : Type u → Type v} {Pred EPred : Type u}
     {ρ : Type u} (r : ρ) (post : ρ → ρ → Pred) (epost : EPred) :
     Std.Do'.wp ((ReaderT.read : ReaderT ρ m ρ).run r) (fun a : ρ => post a r)
         epost =
-      Std.Do'.wp (pure r : m ρ) (fun a : ρ => post a r) epost := by
+      Std.Do'.wp (pure r : m ρ) (fun a : ρ => post a r) epost :=
   rfl
 
 theorem mAlgOrdered_wp_OptionT_run_StateT_get {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {σ : Type} (s : σ)
+    [IsUniformSpec spec] {σ : Type} (s : σ)
     (post : σ → σ → ENNReal)
     (epost : Std.Do'.EPost.cons ENNReal Std.Do'.EPost.nil) :
     MAlgOrdered.wp (m := OracleComp spec) (l := ENNReal)
@@ -286,7 +265,7 @@ theorem mAlgOrdered_wp_OptionT_run_StateT_get {ι : Type u} {spec : OracleSpec �
   rw [MAlgOrdered.wp_pure]
 
 theorem mAlgOrdered_wp_OptionT_run_StateT_set {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {σ : Type} (s s' : σ)
+    [IsUniformSpec spec] {σ : Type} (s s' : σ)
     (post : PUnit → σ → ENNReal) (epost : Std.Do'.EPost.cons ENNReal Std.Do'.EPost.nil) :
     MAlgOrdered.wp (m := OracleComp spec) (l := ENNReal)
       (((StateT.set s' : StateT σ (OptionT (OracleComp spec)) PUnit).run s).run)
@@ -297,7 +276,7 @@ theorem mAlgOrdered_wp_OptionT_run_StateT_set {ι : Type u} {spec : OracleSpec �
   rw [MAlgOrdered.wp_pure]
 
 theorem mAlgOrdered_wp_OptionT_run_lift {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {α : Type}
+    [IsUniformSpec spec] {α : Type}
     (oa : OracleComp spec α) (post : α → ENNReal)
     (epost : Std.Do'.EPost.cons ENNReal Std.Do'.EPost.nil) :
     MAlgOrdered.wp (m := OracleComp spec) (l := ENNReal) (OptionT.lift oa).run
@@ -313,7 +292,7 @@ theorem mAlgOrdered_wp_OptionT_run_lift {ι : Type u} {spec : OracleSpec ι}
   rw [MAlgOrdered.wp_pure]
 
 theorem mAlgOrdered_wp_OptionT_run_StateT_monadLift_lift {ι : Type u}
-    {spec : OracleSpec ι} [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec]
+    {spec : OracleSpec ι} [IsUniformSpec spec]
     {σ α : Type} (oa : OracleComp spec α) (s : σ) (post : α → σ → ENNReal)
     (epost : Std.Do'.EPost.cons ENNReal Std.Do'.EPost.nil) :
     MAlgOrdered.wp (m := OracleComp spec) (l := ENNReal)
@@ -325,7 +304,7 @@ theorem mAlgOrdered_wp_OptionT_run_StateT_monadLift_lift {ι : Type u}
     Std.Do'.EPost.cons.pushOption]
 
 theorem wp_StateT_OptionT_monadLift_lift {ι : Type u} {spec : OracleSpec ι}
-    [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec] {σ α : Type}
+    [IsUniformSpec spec] {σ α : Type}
     (oa : OracleComp spec α) (post : α → σ → ENNReal)
     (epost : Std.Do'.EPost.cons ENNReal Std.Do'.EPost.nil) :
     Std.Do'.wp
@@ -342,7 +321,7 @@ theorem wp_StateT_OptionT_monadLift_lift {ι : Type u} {spec : OracleSpec ι}
   exact mAlgOrdered_wp_OptionT_run_StateT_monadLift_lift (spec := spec) oa s post epost
 
 theorem mAlgOrdered_wp_OptionT_run_StateT_monadLift_lift_map {ι : Type u}
-    {spec : OracleSpec ι} [OracleSpec.Fintype spec] [OracleSpec.Inhabited spec]
+    {spec : OracleSpec ι} [IsUniformSpec spec]
     {σ α β : Type} (oa : OracleComp spec α) (s : σ) (f : α × σ → β)
     (post : β → ENNReal) (nonePost : ENNReal) :
     MAlgOrdered.wp (m := OracleComp spec) (l := ENNReal)
@@ -358,7 +337,7 @@ theorem wp_ReaderT_map_layer {m : Type u → Type v} {Pred EPred : Type u}
     {ρ α β : Type u} (f : α → β) (x : ReaderT ρ m α) (post : β → ρ → Pred)
     (epost : EPred) :
     Std.Do'.wp (f <$> x) post epost =
-      fun r => Std.Do'.wp ((f <$> x).run r) (fun b : β => post b r) epost := by
+      fun r => Std.Do'.wp ((f <$> x).run r) (fun b : β => post b r) epost :=
   rfl
 
 attribute [vcspec]
@@ -597,7 +576,8 @@ private def tryApplyTripleHyp : TacticM Bool := withMainContext do
       return true
     if hypType.isForall then
       let saved ← saveState
-      if ← tryEvalTacticSyntax (← `(tactic| apply $(mkIdent ldecl.userName) <;> assumption)) then
+      if ← tryEvalTacticSyntax
+          (← `(tactic| apply $(mkIdent ldecl.userName) <;> assumption)) then
         return true
       saved.restore
   return false

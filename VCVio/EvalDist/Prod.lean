@@ -8,28 +8,27 @@ import VCVio.EvalDist.Monad.Seq
 /-!
 # Evaluation Distributions of Computations with `Prod`
 
-Lemmas about `evalDist` and `support` involving `Prod`, ported to generic `[HasEvalSPMF m]`.
+Lemmas about `evalDist` and `support` involving `Prod`, ported to generic `[MonadLiftT m SPMF]`.
 -/
 
 open ENNReal Prod
 
 universe u v
 
-variable {m : Type u → Type v} [Monad m] [LawfulMonad m] [HasEvalSPMF m] {α β γ δ : Type u}
+variable {m : Type u → Type v} [Monad m] [LawfulMonad m] [MonadLiftT m SPMF]
+  [LawfulMonadLiftT m SPMF] {α β γ δ : Type u}
 
+omit [Monad m] [LawfulMonadLiftT m SPMF] in
 omit [LawfulMonad m] in
 lemma probOutput_prod_mk_eq_probEvent (mx : m (α × β)) (x : α) (y : β) :
-    Pr[= (x, y) | mx] = Pr[ fun z => z.1 = x ∧ z.2 = y | mx] := by
-  simp [← probEvent_eq_eq_probOutput, Prod.eq_iff_fst_eq_snd_eq]
+    Pr[= (x, y) | mx] = Pr[ fun z => z.1 = x ∧ z.2 = y | mx] := by grind
 
 @[grind =]
 lemma probOutput_fst_map_eq_tsum (mx : m (α × β)) (x : α) :
     Pr[= x | Prod.fst <$> mx] = ∑' y, Pr[= (x, y) | mx] := by
-  have : DecidableEq α := Classical.decEq _
-  simp only [probOutput_map_eq_tsum_ite]
-  rw [ENNReal.tsum_prod']; dsimp only [Prod.fst]
-  refine (tsum_eq_single x ?_).trans (by simp)
-  intro a ha; simp [Ne.symm ha]
+  classical
+  simp only [probOutput_map_eq_tsum_ite, ENNReal.tsum_prod']
+  refine (tsum_eq_single x fun a ha => by simp [Ne.symm ha]).trans (by simp)
 
 @[grind =]
 lemma probOutput_fst_map_eq_sum [Fintype β] (mx : m (α × β)) (x : α) :
@@ -39,11 +38,9 @@ lemma probOutput_fst_map_eq_sum [Fintype β] (mx : m (α × β)) (x : α) :
 @[grind =]
 lemma probOutput_snd_map_eq_tsum (mx : m (α × β)) (y : β) :
     Pr[= y | Prod.snd <$> mx] = ∑' x, Pr[= (x, y) | mx] := by
-  have : DecidableEq β := Classical.decEq _
-  simp only [probOutput_map_eq_tsum_ite]
-  rw [ENNReal.tsum_prod']; dsimp only [Prod.snd]
-  refine tsum_congr fun _ => (tsum_eq_single y ?_).trans (by simp)
-  intro b hb; simp [Ne.symm hb]
+  classical
+  simp only [probOutput_map_eq_tsum_ite, ENNReal.tsum_prod']
+  refine tsum_congr fun _ => (tsum_eq_single y fun b hb => by simp [Ne.symm hb]).trans (by simp)
 
 @[grind =]
 lemma probOutput_snd_map_eq_sum [Fintype α] (mx : m (α × β)) (y : β) :
@@ -68,30 +65,37 @@ lemma probOutput_snd_map_eq_probEvent (mx : m (α × β)) (y : β) :
 lemma probEvent_snd_map (mx : m (α × β)) (p : β → Prop) :
     Pr[ p | Prod.snd <$> mx] = Pr[ fun y => p y.2 | mx] := by grind
 
+omit [Monad m] [LawfulMonadLiftT m SPMF] in
 omit [LawfulMonad m] in
 @[simp, grind =]
 lemma probEvent_fst_eq_snd (mx : m (α × α)) :
     Pr[ fun z => z.1 = z.2 | mx] = ∑' x : α, Pr[= (x, x) | mx] := by
   classical
   rw [probEvent_eq_tsum_ite, ENNReal.tsum_prod']
-  refine tsum_congr fun x => ?_
-  refine (tsum_eq_single x fun b hb => ?_).trans (by simp)
-  exact if_neg (Ne.symm hb)
+  simp
 
 section prod_mk
 
 variable (mx : m α) (my : m β) (f : α → γ) (g : β → δ)
 
-@[simp high]
+/- `@[grind norm]` (not `@[grind =]`): `Seq.seq`'s thunk argument makes the LHS an invalid
+E-matching pattern, but `grind`'s simp-based normalization phase needs no pattern indexing. This
+lets bare `grind` factor an independent applicative product (and e.g. close equiprobability of a
+uniform product), which E-matching alone cannot. -/
+@[simp high, grind norm]
 lemma probOutput_seq_map_prod_mk_eq_mul (z : α × β) :
     Pr[= z | Prod.mk <$> mx <*> my] = Pr[= z.1 | mx] * Pr[= z.2 | my] :=
   probOutput_seq_map_eq_mul_of_injective2 mx my Prod.mk Prod.mk.injective2 z.1 z.2
 
+omit [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF] in
 @[simp high]
-lemma support_seq_map_prod_mk : support (Prod.mk <$> mx <*> my) = support mx ×ˢ support my := by
+lemma support_seq_map_prod_mk [MonadLiftT m SetM] [LawfulMonadLiftT m SetM] :
+    support (Prod.mk <$> mx <*> my) = support mx ×ˢ support my := by
   simp [Set.ext_iff]
 
-lemma finSupport_seq_map_prod_mk [HasEvalFinset m] [DecidableEq α] [DecidableEq β] :
+omit [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF] in
+lemma finSupport_seq_map_prod_mk [MonadLiftT m SetM] [LawfulMonadLiftT m SetM]
+    [HasEvalFinset m] [DecidableEq α] [DecidableEq β] :
     finSupport (Prod.mk <$> mx <*> my) = Finset.product (finSupport mx) (finSupport my) := by
   simp
 
@@ -106,27 +110,29 @@ lemma probOutput_seq_map_prod_mk_map_eq_mul (z : γ × δ) :
 lemma probOutput_seq_map_prod_mk_map_eq_mul' (z : γ × δ) :
     Pr[= z | (fun y x => (f x, g y)) <$> my <*> mx] =
       Pr[= z.1 | f <$> mx] * Pr[= z.2 | g <$> my] := by
-  rw [← probOutput_seq_map_swap]; simp
+  rw [← probOutput_seq_map_swap]
+  simp
 
 @[simp]
 lemma probOutput_bind_map_prod_mk_eq_mul (z : γ × δ) :
     Pr[= z | do let x ← mx; (f x, g ·) <$> my] = Pr[= z.1 | f <$> mx] * Pr[= z.2 | g <$> my] := by
-  simpa [monad_norm] using
-    probOutput_seq_map_prod_mk_map_eq_mul mx my f g z
+  simpa [monad_norm] using probOutput_seq_map_prod_mk_map_eq_mul mx my f g z
 
 @[simp]
 lemma probOutput_bind_map_prod_mk_eq_mul'
     (mx : m α) (my : m β) (f : α → γ) (g : β → δ) (z : γ × δ) :
     Pr[= z | do let y ← my; (f ·, g y) <$> mx] = Pr[= z.1 | f <$> mx] * Pr[= z.2 | g <$> my] := by
-  simpa [monad_norm] using
-    probOutput_seq_map_prod_mk_map_eq_mul' mx my f g z
+  simpa [monad_norm] using probOutput_seq_map_prod_mk_map_eq_mul' mx my f g z
 
+omit [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF] in
 @[simp high]
-lemma support_seq_map_prod_mk_eq_sprod :
+lemma support_seq_map_prod_mk_eq_sprod [MonadLiftT m SetM] [LawfulMonadLiftT m SetM] :
     support ((f ·, g ·) <$> mx <*> my) = (f '' support mx) ×ˢ (g '' support my) := by
   simp [Set.ext_iff]; grind
 
-lemma finSupport_seq_map_prod_mk_eq_product [HasEvalFinset m] [DecidableEq α] [DecidableEq β]
+omit [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF] in
+lemma finSupport_seq_map_prod_mk_eq_product [MonadLiftT m SetM] [LawfulMonadLiftT m SetM]
+    [HasEvalFinset m] [DecidableEq α] [DecidableEq β]
     [DecidableEq γ] [DecidableEq δ] : finSupport ((f ·, g ·) <$> mx <*> my) =
       ((finSupport mx).image f).product ((finSupport my).image g) := by
   simp [Finset.ext_iff]; grind

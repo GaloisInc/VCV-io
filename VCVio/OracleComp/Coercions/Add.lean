@@ -82,21 +82,25 @@ instance lawfulSubSpec_add_right : spec₂ ˡ⊂ₒ (spec₁ + spec₂) where
 
 instance disjointSubSpec_add_left_right :
     OracleSpec.DisjointSubSpec spec₁ spec₂ (spec₁ + spec₂) where
-  disjoint_onQuery t₁ t₂ := by
-    intro h
-    cases h
+  disjoint_onQuery _ _ := by rintro ⟨⟩
 
 instance disjointSubSpec_add_right_left :
     OracleSpec.DisjointSubSpec spec₂ spec₁ (spec₁ + spec₂) where
-  disjoint_onQuery t₂ t₁ := by
-    intro h
-    cases h
+  disjoint_onQuery _ _ := by rintro ⟨⟩
 
 end add_right
 
 section left_add_left_add
 
-instance subSpec_left_add_left_add_of_subSpec [h : spec₁ ⊂ₒ spec₃] :
+/-- Congruence on the left summand: an inclusion `spec₁ ⊂ₒ spec₃` extends to
+`spec₁ + spec₂ ⊂ₒ spec₃ + spec₂`.
+
+Low priority so that searches whose source spec is a metavariable (notably the
+`MonadLiftT (OracleComp spec) (OracleComp superSpec)` chain behind whole-computation
+coercions) prefer the direct embeddings `subSpec_add_left` / `subSpec_add_right`. This keeps
+such coercions a single `liftComp`, definitionally, instead of a stack of lifts through an
+intermediate spec. -/
+instance (priority := low) subSpec_left_add_left_add_of_subSpec [h : spec₁ ⊂ₒ spec₃] :
     spec₁ + spec₂ ⊂ₒ spec₃ + spec₂ where
   monadLift
     | ⟨.inl t, f⟩ => ⟨.inl (h.onQuery t), f ∘ h.onResponse t⟩
@@ -115,12 +119,9 @@ instance subSpec_left_add_left_add_of_subSpec [h : spec₁ ⊂ₒ spec₃] :
       | .mk (.inl q) f => liftM ((liftM (OracleQuery.mk q f) : OracleQuery spec₃ _))
       | .mk (.inr q) f => .mk (.inr q) f := by
   rcases q with ⟨t | t, f⟩
-  · let qOuter : OracleQuery (spec₁ + spec₂) α := ⟨Sum.inl t, f⟩
-    let qInner : OracleQuery spec₁ α := ⟨t, f⟩
-    change (liftM qOuter : OracleQuery (spec₃ + spec₂) α) =
-        liftM (liftM qInner : OracleQuery spec₃ α)
-    rw [show (liftM qInner : OracleQuery spec₃ α) =
-        ⟨h.onQuery t, f ∘ h.onResponse t⟩ from h.liftM_eq_lift qInner]
+  · change _ = liftM (liftM (OracleQuery.mk t f) : OracleQuery spec₃ _)
+    rw [show (liftM (OracleQuery.mk t f) : OracleQuery spec₃ _) =
+      ⟨h.onQuery t, f ∘ h.onResponse t⟩ from h.liftM_eq_lift _]
     rfl
   · rfl
 
@@ -128,8 +129,10 @@ instance subSpec_left_add_left_add_of_subSpec [h : spec₁ ⊂ₒ spec₃] :
     [h : spec₁ ⊂ₒ spec₃] (t : (spec₁ + spec₂).Domain) :
     (liftM (query t) : OracleQuery (spec₃ + spec₂) ((spec₁ + spec₂).Range t)) =
       match t with
-        | .inl t => liftM (liftM (query t)  : OracleQuery spec₃ _)
-        | .inr t => query (Sum.inr t) := by aesop
+        | .inl t => liftM (liftM (query t) : OracleQuery spec₃ _)
+        | .inr t => query (Sum.inr t) := by
+  rw [liftM_left_add_left_add_def]
+  rcases t with t | t <;> rfl
 
 instance lawfulSubSpec_left_add_left_add [spec₁ ⊂ₒ spec₃]
     [spec₁ ˡ⊂ₒ spec₃] :
@@ -144,7 +147,13 @@ end left_add_left_add
 
 section right_add_right_add
 
-instance subSpec_right_add_right_add_of_subSpec [h : spec₂ ⊂ₒ spec₃] :
+/-- Congruence on the right summand: an inclusion `spec₂ ⊂ₒ spec₃` extends to
+`spec₁ + spec₂ ⊂ₒ spec₁ + spec₃`.
+
+Low priority for the same reason as `subSpec_left_add_left_add_of_subSpec`: the direct
+embeddings must win metavariable-headed searches so that whole-computation coercions stay a
+single `liftComp`. -/
+instance (priority := low) subSpec_right_add_right_add_of_subSpec [h : spec₂ ⊂ₒ spec₃] :
     spec₁ + spec₂ ⊂ₒ spec₁ + spec₃ where
   monadLift
     | ⟨.inl t, f⟩ => ⟨.inl t, f⟩
@@ -164,12 +173,9 @@ instance subSpec_right_add_right_add_of_subSpec [h : spec₂ ⊂ₒ spec₃] :
       | .mk (.inr q) f => (liftM (liftM (OracleQuery.mk q f) : OracleQuery spec₃ _)) := by
   rcases q with ⟨t | t, f⟩
   · rfl
-  · let qOuter : OracleQuery (spec₁ + spec₂) α := ⟨Sum.inr t, f⟩
-    let qInner : OracleQuery spec₂ α := ⟨t, f⟩
-    change (liftM qOuter : OracleQuery (spec₁ + spec₃) α) =
-        liftM (liftM qInner : OracleQuery spec₃ α)
-    rw [show (liftM qInner : OracleQuery spec₃ α) =
-        ⟨h.onQuery t, f ∘ h.onResponse t⟩ from h.liftM_eq_lift qInner]
+  · change _ = liftM (liftM (OracleQuery.mk t f) : OracleQuery spec₃ _)
+    rw [show (liftM (OracleQuery.mk t f) : OracleQuery spec₃ _) =
+      ⟨h.onQuery t, f ∘ h.onResponse t⟩ from h.liftM_eq_lift _]
     rfl
 
 @[simp high] lemma liftM_right_add_right_add_query
@@ -177,7 +183,9 @@ instance subSpec_right_add_right_add_of_subSpec [h : spec₂ ⊂ₒ spec₃] :
     (liftM (query t) : OracleQuery (spec₁ + spec₃) ((spec₁ + spec₂).Range t)) =
       match t with
         | .inl t => query (Sum.inl t)
-        | .inr t => liftM (liftM (query t) : OracleQuery spec₃ _) := by aesop
+        | .inr t => liftM (liftM (query t) : OracleQuery spec₃ _) := by
+  rw [liftM_right_add_right_add_def]
+  rcases t with t | t <;> rfl
 
 instance lawfulSubSpec_right_add_right_add [spec₂ ⊂ₒ spec₃]
     [spec₂ ˡ⊂ₒ spec₃] :
@@ -221,7 +229,7 @@ instance subSpec_add_assoc : spec₁ + (spec₂ + spec₃) ⊂ₒ spec₁ + spec
         | .inl t => query (Sum.inl (Sum.inl t))
         | .inr (.inl t) => query (Sum.inl (Sum.inr t))
         | .inr (.inr t) => query (Sum.inr t) := by
-  rcases t with t | t | t <;> simp [OracleSpec.query_def]
+  rcases t with t | t | t <;> rfl
 
 instance lawfulSubSpec_add_assoc :
     spec₁ + (spec₂ + spec₃) ˡ⊂ₒ spec₁ + spec₂ + spec₃ where
@@ -371,5 +379,15 @@ example (q : OracleQuery spec₁ α) :
       OracleQuery (spec₁ + spec₂ + spec₃) α) =
     (liftM (liftM q : OracleQuery (spec₁ + spec₃) α) :
       OracleQuery (spec₁ + spec₂ + spec₃) α) := by simp
+
+-- Whole-computation coercions into a sum spec are *definitionally* a single `liftComp`,
+-- with no intermediate hop through another spec. In particular lifting out of `ProbComp`
+-- (e.g. into a random-oracle spec `unifSpec + (T →ₒ U)`) is `liftComp` by `rfl`.
+example (oa : OracleComp spec₁ α) :
+    (oa : OracleComp (spec₁ + spec₂) α) = OracleComp.liftComp oa (spec₁ + spec₂) := rfl
+example (oa : OracleComp spec₂ α) :
+    (oa : OracleComp (spec₁ + spec₂) α) = OracleComp.liftComp oa (spec₁ + spec₂) := rfl
+example (px : ProbComp α) :
+    (px : OracleComp (unifSpec + spec₁) α) = OracleComp.liftComp px (unifSpec + spec₁) := rfl
 
 end tests

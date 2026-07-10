@@ -11,7 +11,7 @@ import VCVio.EvalDist.Defs.Basic
 This file defines bundled semantics for monads that factor through an internal semantic monad
 before being externally observed.
 
-The existing classes `HasEvalSPMF` and `HasEvalPMF` say that a monad already *has* an
+A `MonadLiftT m SPMF` / `MonadLiftT m PMF` instance says that a monad already *has* an
 `SPMF` or `PMF` denotation. That is convenient when the monad itself is the semantic object,
 but it is too rigid for constructions whose natural semantics has hidden internal structure.
 
@@ -66,8 +66,7 @@ other kinds of denotational semantics such as sets of outcomes, traces, or quant
 The important asymmetry is that `interpret` is required to be a monad morphism, while `observe`
 is not. This lets us model semantics where running the internal computation requires fixing hidden
 state or discarding auxiliary structure before exposing the final denotation. -/
-structure SemanticsVia
-    (m : Type u → Type v) [Monad m] (Obs : Type u → Type x) where
+structure SemanticsVia (m : Type u → Type v) [Monad m] (Obs : Type u → Type x) where
   /-- Internal monad used to give denotational meaning to computations in `m`. -/
   Sem : Type u → Type w
   /-- Monad structure on the internal semantic monad. -/
@@ -93,8 +92,7 @@ end SemanticsVia
 This is the specialization of `SemanticsVia` where the external observation target is `SPMF`.
 Computations in `m` are therefore interpreted as subprobability distributions on outputs, possibly
 with failure mass. -/
-structure SPMFSemantics (m : Type u → Type v) [Monad m]
-    extends SemanticsVia m SPMF
+structure SPMFSemantics (m : Type u → Type v) [Monad m] extends SemanticsVia m SPMF
 
 /-- The internal semantic monad of an `SPMFSemantics` carries the inherited monad structure. -/
 instance {m : Type u → Type v} [Monad m] (sem : SPMFSemantics m) : Monad sem.Sem :=
@@ -124,29 +122,28 @@ def probFailure (sem : SPMFSemantics m) (mx : m α) : ENNReal :=
 
 /-- Failure probability under an `SPMFSemantics` is always at most `1`. -/
 @[simp]
-lemma probFailure_le_one (sem : SPMFSemantics m) (mx : m α) :
-    sem.probFailure mx ≤ 1 :=
+lemma probFailure_le_one (sem : SPMFSemantics m) (mx : m α) : sem.probFailure mx ≤ 1 :=
   PMF.coe_le_one (sem.evalDist mx) none
 
-/-- Package an ordinary `HasEvalSPMF` instance as a bundled `SPMFSemantics`.
+/-- Package an ordinary `MonadLiftT m SPMF` instance as a bundled `SPMFSemantics`.
 
-This is the bridge back to the old style where the surface monad itself already carries its
+This is the bridge back to the case where the surface monad itself already carries its
 subprobabilistic denotation. In that case the internal semantic monad is just `m` itself, the
-interpreter is the identity monad morphism, and observation is `HasEvalSPMF.toSPMF`. -/
-protected def ofHasEvalSPMF (m : Type u → Type v) [Monad m] [HasEvalSPMF m] :
+interpreter is the identity monad morphism, and observation is `liftM`. -/
+protected def ofMonadLift (m : Type u → Type v) [Monad m] [MonadLiftT m SPMF] :
     SPMFSemantics m where
   Sem := m
   instMonadSem := inferInstance
   interpret := MonadHom.id m
-  observe := fun mx => HasEvalSPMF.toSPMF mx
+  observe := fun mx => liftM mx
 
 @[simp]
-lemma ofHasEvalSPMF_evalDist (mx : m α) [HasEvalSPMF m] :
-    (SPMFSemantics.ofHasEvalSPMF m).evalDist mx = HasEvalSPMF.toSPMF mx := rfl
+lemma ofMonadLift_evalDist (mx : m α) [MonadLiftT m SPMF] :
+    (SPMFSemantics.ofMonadLift m).evalDist mx = liftM mx := rfl
 
 @[simp]
-lemma ofHasEvalSPMF_probFailure (mx : m α) [HasEvalSPMF m] :
-    (SPMFSemantics.ofHasEvalSPMF m).probFailure mx = Pr[⊥ | mx] := rfl
+lemma ofMonadLift_probFailure (mx : m α) [MonadLiftT m SPMF] :
+    (SPMFSemantics.ofMonadLift m).probFailure mx = Pr[⊥ | mx] := rfl
 
 end SPMFSemantics
 
@@ -154,8 +151,7 @@ end SPMFSemantics
 
 This is the specialization of `SemanticsVia` where the external observation target is `PMF`.
 There is therefore no failure mass in the resulting denotation. -/
-structure PMFSemantics (m : Type u → Type v) [Monad m]
-    extends SemanticsVia m PMF
+structure PMFSemantics (m : Type u → Type v) [Monad m] extends SemanticsVia m PMF
 
 /-- The internal semantic monad of a `PMFSemantics` carries the inherited monad structure. -/
 instance {m : Type u → Type v} [Monad m] (sem : PMFSemantics m) : Monad sem.Sem :=
@@ -175,28 +171,28 @@ def evalDist (sem : PMFSemantics m) (mx : m α) : PMF α :=
 
 /-- Forget that a total semantics is total, yielding the underlying subprobabilistic semantics.
 
-This simply postcomposes observation with the canonical embedding `PMF α → SPMF α`. The resulting
-`SPMFSemantics` has zero failure probability, but it can now be consumed by APIs that are stated in
-terms of subprobabilistic semantics. -/
+This simply postcomposes observation with the canonical embedding `PMF α → SPMF α`. The
+resulting `SPMFSemantics` has zero failure probability, but it can now be consumed by APIs
+that are stated in terms of subprobabilistic semantics. -/
 noncomputable def toSPMFSemantics (sem : PMFSemantics m) : SPMFSemantics m where
   Sem := sem.Sem
   instMonadSem := sem.instMonadSem
   interpret := sem.interpret
   observe := fun mx => liftM (sem.observePMF mx)
 
-/-- Package an ordinary `HasEvalPMF` instance as a bundled `PMFSemantics`.
+/-- Package an ordinary `MonadLiftT m PMF` instance as a bundled `PMFSemantics`.
 
-As with `SPMFSemantics.ofHasEvalSPMF`, this recovers the familiar case where the surface monad
+As with `SPMFSemantics.ofMonadLift`, this recovers the familiar case where the surface monad
 already comes with a total probabilistic denotation. -/
-protected def ofHasEvalPMF (m : Type u → Type v) [Monad m] [HasEvalPMF m] :
+protected def ofMonadLift (m : Type u → Type v) [Monad m] [MonadLiftT m PMF] :
     PMFSemantics m where
   Sem := m
   instMonadSem := inferInstance
   interpret := MonadHom.id m
-  observe := fun mx => HasEvalPMF.toPMF mx
+  observe := fun mx => liftM mx
 
 @[simp]
-lemma ofHasEvalPMF_evalDist (mx : m α) [HasEvalPMF m] :
-    (PMFSemantics.ofHasEvalPMF m).evalDist mx = HasEvalPMF.toPMF mx := rfl
+lemma ofMonadLift_evalDist (mx : m α) [MonadLiftT m PMF] :
+    (PMFSemantics.ofMonadLift m).evalDist mx = liftM mx := rfl
 
 end PMFSemantics

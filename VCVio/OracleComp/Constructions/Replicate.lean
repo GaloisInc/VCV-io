@@ -34,6 +34,8 @@ def replicate {ι} {spec : OracleSpec ι} {α : Type v}
       let xs ← replicate n oa
       pure (x :: xs)
 
+/-- Tail-recursive variant of `replicate`, running `oa` for each entry of a length-`n` list
+built by `List.replicateTR`. Agrees with `replicate` via `replicateTR_eq_replicate`. -/
 def replicateTR {ι} {spec : OracleSpec ι} {α : Type v}
     (n : ℕ) (oa : OracleComp spec α) : OracleComp spec (List α) :=
   (List.replicateTR n ()).mapM fun () => oa
@@ -41,14 +43,14 @@ def replicateTR {ι} {spec : OracleSpec ι} {α : Type v}
 variable {ι} {spec : OracleSpec ι} {α β : Type v}
   (oa : OracleComp spec α) (n : ℕ)
 
-@[simp]
+@[simp, grind =]
 lemma replicate_zero : replicate 0 oa = return [] := rfl
 
-@[simp]
-lemma replicateTR_zero : replicate 0 oa = return [] := rfl
+@[simp, grind =]
+lemma replicateTR_zero : replicateTR 0 oa = return [] := rfl
 
 /-- Bind-style unfolding of `replicate`, convenient for program-logic proofs. -/
-@[simp]
+@[simp, grind =]
 lemma replicate_succ_bind :
     replicate (n + 1) oa = (do
       let x ← oa
@@ -58,11 +60,9 @@ lemma replicate_succ_bind :
 /-- The tail-recursive `replicateTR` agrees with the recursive `replicate`. The
 `@[simp]` annotation lets every later proof about `replicateTR` reduce to the
 recursive form automatically. -/
-@[simp]
+@[simp, grind =]
 lemma replicateTR_eq_replicate : replicateTR n oa = replicate n oa := by
-  change (List.replicateTR n ()).mapM (fun _ => oa) = replicate n oa
-  rw [show List.replicateTR n () = List.replicate n () from
-    congrFun (congrFun (congrFun List.replicate_eq_replicateTR.symm Unit) n) ()]
+  simp only [replicateTR, ← List.replicate_eq_replicateTR]
   induction n with
   | zero => simp
   | succ n ih => simp [List.replicate, List.mapM_cons, ih]
@@ -70,14 +70,14 @@ lemma replicateTR_eq_replicate : replicateTR n oa = replicate n oa := by
 lemma replicate_succ : replicate (n + 1) oa = List.cons <$> oa <*> replicate n oa := by
   simp [replicate_succ_bind, monad_norm, Function.comp]
 
-@[simp]
+@[simp, grind =]
 lemma replicate_pure (x : α) :
     (pure x : OracleComp spec α).replicate n = pure (List.replicate n x) := by
   induction n with
   | zero => rfl
   | succ n hn => simp [hn, List.replicate]
 
-variable [spec.Fintype] [spec.Inhabited]
+variable [IsUniformSpec spec]
 
 lemma probFailure_replicate :
     Pr[⊥ | oa.replicate n] = 1 - (1 - Pr[⊥ | oa]) ^ n := by
@@ -92,19 +92,12 @@ lemma probOutput_replicate (xs : List α) :
     Pr[= xs | oa.replicate n] = if xs.length = n then (xs.map (Pr[= · | oa])).prod else 0 := by
   have : DecidableEq α := Classical.decEq α
   induction n generalizing xs with
-  | zero =>
-    simp only [replicate_zero]
-    by_cases hxs : xs = []
-    · subst hxs; simp
-    · have : xs.length ≠ 0 := fun h => hxs (List.eq_nil_of_length_eq_zero h)
-      simp [this, probOutput_eq_zero_of_not_mem_support, hxs]
+  | zero => cases xs <;> simp [probOutput_eq_zero_of_not_mem_support]
   | succ n ih =>
-    rw [replicate_succ]
-    by_cases hxs : xs = []
-    · subst hxs; simp
-    · obtain ⟨y, ys, rfl⟩ := List.exists_cons_of_ne_nil hxs
-      simp only [List.length_cons, Nat.add_right_cancel_iff, List.map_cons, List.prod_cons]
-      rw [probOutput_cons_seq_map_cons_eq_mul oa (replicate n oa) y ys, ih]
+    cases xs with
+    | nil => simp
+    | cons y ys =>
+      rw [replicate_succ, probOutput_cons_seq_map_cons_eq_mul oa (replicate n oa) y ys, ih]
       simp
 
 lemma probEvent_replicate_of_probEvent_cons
@@ -118,25 +111,20 @@ lemma probEvent_replicate_of_probEvent_cons
         (fun x _ xs _ => hq x xs),
       ih, pow_succ, mul_comm]
 
+omit [IsUniformSpec spec] in
 /-- Possible outputs of `replicate n oa` are lists of length `n` where
 each element in the list is a possible output of `oa`. -/
 @[simp]
 lemma support_replicate :
     support (oa.replicate n) = {xs | xs.length = n ∧ ∀ x ∈ xs, x ∈ support oa} := by
-  apply Set.ext; intro xs
-  simp only [Set.mem_setOf_eq, mem_support_iff, probOutput_replicate, ne_eq]
-  constructor
-  · intro h
-    split_ifs at h with hlen
-    · refine ⟨hlen, fun x hx hzero => ?_⟩
-      exact h (List.prod_eq_zero (List.mem_map.mpr ⟨x, hx, hzero⟩))
-    · exact absurd rfl h
-  · intro ⟨hlen, hmem⟩
-    rw [if_pos hlen]
-    refine List.prod_ne_zero ?_
-    intro hzero
-    rw [List.mem_map] at hzero
-    exact hzero.elim fun x ⟨hx, hxa⟩ => hmem x hx hxa
+  induction n with
+  | zero => ext xs; aesop
+  | succ n ih =>
+    rw [replicate_succ]
+    ext xs
+    cases xs with
+    | nil => simp
+    | cons x xs => rw [cons_mem_support_seq_map_cons_iff, ih]; aesop
 
 @[simp]
 lemma mem_finSupport_replicate [spec.DecidableEq] [DecidableEq α]
@@ -159,20 +147,34 @@ section SimulateQ
 variable {ι'} {spec' : OracleSpec ι'} {r : Type v → Type*}
   [Monad r] [LawfulMonad r] (impl : QueryImpl spec r)
 
-omit [spec.Fintype] [spec.Inhabited] in
+omit [IsUniformSpec spec] in
 /-- `simulateQ` distributes over `replicate`: simulating a replicated computation
 equals running the simulated body `n` times via monadic recursion. -/
 lemma simulateQ_replicate :
     simulateQ impl (replicate n oa) =
       (List.replicate n ()).mapM (fun _ => simulateQ impl oa) := by
   induction n with
-  | zero => simp [replicate_zero, List.replicate, List.mapM_nil]
+  | zero => rfl
   | succ n ih =>
     simp only [replicate_succ_bind, simulateQ_bind, simulateQ_pure,
-      List.replicate, List.mapM_cons]
-    congr 1; funext x
-    simp only [ih]
+      List.replicate, List.mapM_cons, ih]
 
 end SimulateQ
+
+section VectorMapM
+
+/-- Index-extraction for `(Vector.ofFn id).mapM` over an `OracleComp`: any element in the
+support of the monadic `mapM` has each component lying in the support of the corresponding
+inner computation. -/
+lemma support_ofFn_mapM_index
+    {ι α : Type} {spec : OracleSpec ι} {L : ℕ}
+    (f : Fin L → OracleComp spec α)
+    {v : Vector α L}
+    (hv : v ∈ support ((Vector.ofFn (id : Fin L → Fin L)).mapM f))
+    (i : Fin L) : v[i] ∈ support (f i) := by
+  simpa using
+    Vector.support_mapM_index (Vector.ofFn (id : Fin L → Fin L)) f hv i
+
+end VectorMapM
 
 end OracleComp

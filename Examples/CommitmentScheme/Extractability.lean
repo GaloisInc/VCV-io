@@ -61,8 +61,8 @@ open OracleSpec OracleComp ENNReal
 
 variable {M S C : Type}
   [DecidableEq M] [DecidableEq S] [DecidableEq C]
-  [Fintype M] [Fintype S] [Fintype C]
-  [Inhabited M] [Inhabited S] [Inhabited C]
+  -- [Fintype M] [Fintype S] [Fintype C]
+  -- [Inhabited M] [Inhabited S] [Inhabited C]
 
 /-! ## Adversary, extractor, and game -/
 
@@ -130,7 +130,6 @@ private def extractabilityInner {AUX : Type} {t : ℕ}
     | some (m', s') => (c == cm) && decide ((m', s') ≠ (m, s))
     | none => (c == cm))
 
-omit [Fintype M] [Fintype S] [Fintype C] [Inhabited M] [Inhabited S] [Inhabited C] in
 /-- The extractability game equals `simulateQ cachingOracle` on `extractabilityInner`. -/
 private lemma extractabilityGame_eq {t : ℕ} (A : ExtractAdversary M S C AUX t) :
     extractabilityGame CMExtract A =
@@ -153,7 +152,6 @@ private def extractabilityInner_tagged {AUX : Type} {t : ℕ}
     | some (m', s') => ((c == cm) && decide ((m', s') ≠ (m, s)), false)
     | none => ((c == cm), true))
 
-omit [Fintype M] [Fintype S] [Fintype C] [Inhabited M] [Inhabited S] [Inhabited C] in
 /-- The untagged inner computation is the first projection of the tagged one. -/
 private lemma extractabilityInner_eq_fst_tagged {t : ℕ}
     (A : ExtractAdversary M S C AUX t) :
@@ -178,8 +176,7 @@ commitment value, which directly witnesses a cache collision. -/
 When `CMExtract` finds an entry `(m', s')` in the commit trace with `H(m', s') = cm`,
 and verification gives `H(m, s) = cm` with `(m', s') ≠ (m, s)`, both distinct inputs
 map to `cm` in the final cache. -/
-omit [Fintype M] [Fintype S] [Fintype C] [Inhabited M] [Inhabited S] [Inhabited C] in
-private lemma extractability_someWin_implies_collision {t : ℕ}
+private lemma extractability_someWin_implies_collision {t : ℕ} [Finite C] [Inhabited C]
     (A : ExtractAdversary M S C AUX t) :
     ∀ z ∈ support ((simulateQ cachingOracle (extractabilityInner_tagged A)).run ∅),
       z.1.1 = true → z.1.2 = false → CacheHasCollision z.2 := by
@@ -238,7 +235,6 @@ private lemma extractability_someWin_implies_collision {t : ℕ}
     exact ⟨entry.1, (m, s), entry.2, c, hne, hcache₃_entry, hcache₃,
       heq_of_eq (by rw [hentry_cm, hceq])⟩
 
-omit [Fintype M] [Fintype S] [Fintype C] [Inhabited C] [Inhabited M] [Inhabited S] in
 /-- `IsTotalQueryBound` for the extractability game's inner computation.
 
 The inner computation consists of:
@@ -287,7 +283,6 @@ private lemma extractabilityInner_totalBound [Finite C] {t : ℕ}
     have := A.totalBound
     omega)
 
-omit [Fintype M] [Fintype S] [Fintype C] [Inhabited M] [Inhabited S] [Inhabited C] in
 /-- The tagged inner computation has the same query bound as the untagged one. -/
 private lemma extractabilityInner_tagged_totalBound [Finite C] {t : ℕ}
     (A : ExtractAdversary M S C AUX t) :
@@ -302,9 +297,8 @@ private lemma extractabilityInner_tagged_totalBound [Finite C] {t : ℕ}
 /- The some-case win event on the tagged game implies cache collision.
 
 Wraps `extractability_someWin_implies_collision` for use with `probEvent_mono`. -/
-omit [Fintype M] [Fintype S] [Inhabited M] [Inhabited S] in
 private lemma extractability_someWin_le_collision {t : ℕ}
-    (A : ExtractAdversary M S C AUX t) :
+    (A : ExtractAdversary M S C AUX t) [Fintype C] [Inhabited C] :
     Pr[fun z => z.1.1 = true ∧ z.1.2 = false |
       (simulateQ cachingOracle (extractabilityInner_tagged A)).run ∅] ≤
     Pr[fun z => CacheHasCollision z.2 |
@@ -342,6 +336,10 @@ private def extractabilityRestOa {t : ℕ}
       | some (m', s') => (c == cm) && decide ((m', s') ≠ (m, s))
       | none => (c == cm)
 
+variable [Inhabited C] [Finite C]
+
+attribute [local instance] Fintype.ofFinite
+
 /-! ## None-case branch: extractor returned nothing, fresh open/verify lands on `cm`
 
 If `CMExtract` returns `none`, every accepting opening corresponds to a
@@ -349,9 +347,9 @@ If `CMExtract` returns `none`, every accepting opening corresponds to a
 the probability of this by `(t₂ + 1) / |C|` via the per-query
 unpredictability of a fresh random-oracle answer. -/
 
+omit [Inhabited C] [Finite C] in
 /- Under a collision-free commit cache, any extractability win must create a fresh
 post-commit cache entry equal to the commitment value. -/
-omit [Fintype M] [Fintype S] [Fintype C] [Inhabited M] [Inhabited S] [Inhabited C] in
 private lemma extractability_rest_win_implies_fresh_cm {t : ℕ}
     (A : ExtractAdversary M S C AUX t)
     {cm : C} {aux : AUX} {tr : QueryLog (CMOracle M S C)}
@@ -375,6 +373,8 @@ private lemma extractability_rest_win_implies_fresh_cm {t : ℕ}
   rw [support_bind] at hz
   simp only [Set.mem_iUnion] at hz
   obtain ⟨⟨c, cache₃⟩, hmem₃, hz⟩ := hz
+  simp only [simulateQ_pure, StateT.run_pure, support_pure,
+    Set.mem_singleton_iff] at hz
   rw [hz] at hwin
   unfold CMExtract at hwin
   cases hfind : tr.find? (fun entry => decide (entry.2 = cm)) with
@@ -450,7 +450,6 @@ private lemma extractability_rest_win_implies_fresh_cm {t : ℕ}
       exact ⟨(m, s), c, hcache₃, hcache₁_none, heq_of_eq hc_eq⟩
 
 /- Winning the extractability rest-game implies a fresh cache entry matching `cm`. -/
-omit [Fintype M] [Fintype S] [Inhabited M] [Inhabited S] in
 private lemma extractability_rest_win_le_exists_fresh {t : ℕ}
     (A : ExtractAdversary M S C AUX t)
     (cm : C) (aux : AUX) (tr : QueryLog (CMOracle M S C))
@@ -468,8 +467,7 @@ private lemma extractability_rest_win_le_exists_fresh {t : ℕ}
 
 /- Conditioned on a collision-free commit trace, the later extractability failure
 probability is bounded by the fresh-hit term `(t₂ + 1) / |C|`. -/
-omit [Fintype M] [Fintype S] in
-private lemma extractability_rest_noCollision_le_inv {t : ℕ}
+private lemma extractability_rest_noCollision_le_inv {t : ℕ} [Inhabited M] [Inhabited S]
     (A : ExtractAdversary M S C AUX t)
     (cm : C) (aux : AUX) (tr : QueryLog (CMOracle M S C))
     (cache₁ : QueryCache (CMOracle M S C))
@@ -505,8 +503,8 @@ matching `cm`. The commit trace has `≤ t₁` entries (birthday bound `t₁(t�
 and the open+verify phase has `≤ t₂+1` fresh queries matching `cm` (`(t₂+1)/|C|`).
 Maximizing `t₁(t₁-1)/2 + t₂ + 1` over `t₁+t₂ ≤ t` gives `max{t+1, t(t-1)/2+1}`.
 For `t ≥ 3` this is `t(t-1)/2+1`, yielding `(t(t-1)+2)/(2|C|)`. -/
-omit [Fintype M] [Fintype S] in
-private lemma extractability_win_le_textbook_bound {t : ℕ} (ht : 3 ≤ t)
+private lemma extractability_win_le_textbook_bound [Inhabited M] [Inhabited S]
+    {t : ℕ} (ht : 3 ≤ t)
     (A : ExtractAdversary M S C AUX t) :
     Pr[fun z => z.1 = true | extractabilityGame CMExtract A] ≤
     ((t * (t - 1) : ℕ) : ℝ≥0∞) / (2 * Fintype.card C) +
@@ -536,7 +534,7 @@ private lemma extractability_win_le_textbook_bound {t : ℕ} (ht : 3 ≤ t)
         (by
           simpa using
             (probEvent_cacheCollision_le_birthday_total_tight commitPart A.t₁
-              hcommit_bound Fintype.card_pos (fun _ => le_refl _)))
+              hcommit_bound (fun _ => le_refl _)))
         (by
           rintro ⟨⟨⟨cm, aux⟩, tr⟩, cache₁⟩ hx hno
           simpa [restPart, extractabilityRestOa] using
@@ -564,7 +562,6 @@ private lemma extractability_win_le_textbook_bound {t : ℕ} (ht : 3 ≤ t)
           simpa [Nat.mul_one, Nat.add_comm, Nat.add_left_comm, Nat.add_assoc] using
             add_div_two_mul_nat (t * (t - 1)) 1 (Fintype.card C)
 
-omit [Fintype M] [Fintype S] in
 /-- **Extractability bound for the ROM commitment scheme (Lemma cm-extractability).**
 
 For every two-phase `t`-query adversary `A = (A_commit, A_open)` with
@@ -589,7 +586,7 @@ displayed bound.
 This is the same proof shape as `binding_bound`: birthday collision +
 single fresh-query unpredictability. The `t ≥ 3` hypothesis is precisely
 where the case-split max collapses; the `t ≤ 2` regime is degenerate. -/
-theorem extractability_bound {t : ℕ} (ht : 3 ≤ t)
+theorem extractability_bound [Inhabited M] [Inhabited S] {t : ℕ} (ht : 3 ≤ t)
     (A : ExtractAdversary M S C AUX t) :
     Pr[fun z => z.1 = true | extractabilityGame CMExtract A] ≤
     ((t * (t - 1) + 2 : ℕ) : ℝ≥0∞) / (2 * Fintype.card C) := by

@@ -128,7 +128,7 @@ def signature (g : G) (M : Type) [DecidableEq M] :
       (M := M) (PK := G) (SK := F) (S := G × F) :=
   FiatShamir (Schnorr.sigma F G g) (dlogGenerable (F := F) g) M
 
-omit [Fintype F] in
+omit [Fintype F] [DecidableEq F] in
 /-- Completeness of the Schnorr signature follows from completeness of the
 underlying Schnorr Σ-protocol via the generic Fiat-Shamir completeness theorem. -/
 theorem signature_complete (g : G) (M : Type) [DecidableEq M] :
@@ -197,6 +197,7 @@ theorem signature_euf_cma (g : G)
       eps * (eps / (qH + 1 : ENNReal) - FiatShamir.challengeSpaceInv F) ≤
         Pr[= true | dlogExp g reduction] := by
   haveI : Inhabited F := ⟨0⟩
+  haveI : Inhabited G := ⟨(0 : F) • g⟩
   obtain ⟨red, hred⟩ := FiatShamir.euf_cma_bound
     (Schnorr.sigma F G g) (dlogGenerable (F := F) g) M
     (Schnorr.sigma_speciallySound F G g)
@@ -211,6 +212,7 @@ theorem signature_euf_cma (g : G)
   exact ⟨fun _ pk => red pk,
     hred.trans (le_of_eq (hardRelationExp_dlogGenerable_eq_dlogExp F G g hg red))⟩
 
+#guard_msgs (drop info) in
 #print axioms signature_euf_cma
 
 end Schnorr

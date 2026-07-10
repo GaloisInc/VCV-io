@@ -30,9 +30,8 @@ open scoped OracleSpec.PrimitiveQuery
 namespace OracleComp.ProgramLogic
 
 variable {ι : Type*} {spec : OracleSpec ι}
-variable [spec.Fintype] [spec.Inhabited]
+variable [IsUniformSpec spec]
 variable {α : Type}
-
 
 /-- If every oracle query in `impl` has the same evaluation distribution as the original query,
 then `wp` of the simulated computation equals `wp` of the original. -/
@@ -52,15 +51,14 @@ then `wp` of the simulated computation equals `wp` of the original. -/
     simp_rw [ih]
     exact wp_congr_evalDist (hImpl t) _
 
-
 /-- Lifting a computation to a larger oracle spec via `liftComp` preserves `wp`. -/
 @[game_rule] theorem wp_liftComp {ι' : Type*} {superSpec : OracleSpec ι'}
-    [superSpec.Fintype] [superSpec.Inhabited]
+    [IsUniformSpec superSpec]
     [h : spec ⊂ₒ superSpec] [spec ˡ⊂ₒ superSpec]
     (mx : OracleComp spec α) (post : α → ℝ≥0∞) :
     wp (liftComp mx superSpec) post =
       wp mx post := by
-  change @μ _ superSpec _ _ (liftComp mx superSpec >>= fun a => pure (post a)) =
+  change @μ _ superSpec _ (liftComp mx superSpec >>= fun a => pure (post a)) =
        μ (mx >>= fun a => pure (post a))
   exact μ_cross_congr_evalDist
     (by simp only [evalDist_bind, evalDist_liftComp, evalDist_pure])

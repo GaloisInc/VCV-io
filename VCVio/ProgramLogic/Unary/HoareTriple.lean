@@ -44,7 +44,7 @@ open scoped OracleSpec.PrimitiveQuery
 namespace OracleComp.ProgramLogic
 
 variable {ι : Type u} {spec : OracleSpec ι}
-variable [spec.Fintype] [spec.Inhabited]
+variable [IsUniformSpec spec]
 variable {α β σ : Type}
 
 /-! ## API contract
@@ -198,15 +198,12 @@ theorem wp_mono (oa : OracleComp spec α) {post post' : α → ℝ≥0∞}
   simp only [wp_eq_mAlgOrdered_wp]
   exact MAlgOrdered.wp_mono (m := OracleComp spec) (l := ℝ≥0∞) oa hpost
 
-@[game_rule] theorem wp_map
-    (f : α → β) (oa : OracleComp spec α) (post : β → ℝ≥0∞) :
+@[game_rule] theorem wp_map (f : α → β) (oa : OracleComp spec α) (post : β → ℝ≥0∞) :
     wp (f <$> oa) post =
       wp oa (post ∘ f) := by
   change wp (oa >>= fun a => pure (f a)) post = _
   rw [wp_bind]
-  congr 1
-  funext a
-  simp [Function.comp]
+  simp [Function.comp_def]
 
 /-- General unfolding: `wp` as weighted sum over output probabilities. -/
 theorem wp_eq_tsum (oa : OracleComp spec α) (post : α → ℝ≥0∞) :
@@ -214,15 +211,13 @@ theorem wp_eq_tsum (oa : OracleComp spec α) (post : α → ℝ≥0∞) :
   rw [wp_eq_mAlgOrdered_wp, MAlgOrdered.wp]
   change μ (oa >>= fun a => pure (post a)) = _
   rw [μ_bind_eq_tsum]
-  refine tsum_congr fun x => ?_
-  have : μ (pure (post x) : OracleComp spec ℝ≥0∞) = post x := by
-    haveI : DecidableEq ℝ≥0∞ := Classical.decEq _
-    simp [μ, probOutput_pure]
-  rw [this]
+  refine tsum_congr fun x => congrArg (Pr[= x | oa] * ·) ?_
+  haveI : DecidableEq ℝ≥0∞ := Classical.decEq _
+  simp [μ, probOutput_pure]
 
 @[simp] theorem wp_const (oa : OracleComp spec α) (c : ℝ≥0∞) :
     wp oa (fun _ => c) = c := by
-  rw [wp_eq_tsum, ENNReal.tsum_mul_right, HasEvalPMF.tsum_probOutput_eq_one, one_mul]
+  rw [wp_eq_tsum, ENNReal.tsum_mul_right, tsum_probOutput_of_liftM_PMF, one_mul]
 
 @[game_rule] theorem wp_add (oa : OracleComp spec α) (f g : α → ℝ≥0∞) :
     wp oa (fun x => f x + g x) =
@@ -260,20 +255,16 @@ theorem triple_bind {pre : ℝ≥0∞} {oa : OracleComp spec α}
     {cut : α → ℝ≥0∞} {ob : α → OracleComp spec β} {post : β → ℝ≥0∞}
     (hoa : Triple pre oa cut)
     (hob : ∀ x, Triple (cut x) (ob x) post) :
-    Triple pre (oa >>= ob) post := by
-  refine triple_ofLE ?_
-  have h := MAlgOrdered.triple_bind (m := OracleComp spec) (l := ℝ≥0∞)
-              (triple_toLE hoa) (fun x => triple_toLE (hob x))
-  exact h
+    Triple pre (oa >>= ob) post :=
+  triple_ofLE (MAlgOrdered.triple_bind (m := OracleComp spec) (l := ℝ≥0∞)
+    (triple_toLE hoa) fun x => triple_toLE (hob x))
 
 theorem triple_bind_wp {pre : ℝ≥0∞} {oa : OracleComp spec α}
     {ob : α → OracleComp spec β} {post : β → ℝ≥0∞}
     (h : Triple pre oa
           (fun x => wp (ob x) post)) :
-    Triple pre (oa >>= ob) post := by
-  refine triple_ofLE ?_
-  have hle := triple_toLE h
-  rw [wp_bind]; exact hle
+    Triple pre (oa >>= ob) post :=
+  triple_ofLE (by rw [wp_bind]; exact triple_toLE h)
 
 theorem triple_pure (x : α) (post : α → ℝ≥0∞) :
     Triple (post x) (pure x : OracleComp spec α) post :=
@@ -306,18 +297,7 @@ theorem triple_dite {c : Prop} [Decidable c] {pre : ℝ≥0∞}
 lemma probEvent_eq_wp_indicator (oa : OracleComp spec α) (p : α → Prop)
     [DecidablePred p] :
     Pr[ p | oa] = wp oa (fun x => if p x then 1 else 0) := by
-  rw [probEvent_eq_tsum_ite, wp_eq_mAlgOrdered_wp, MAlgOrdered.wp]
-  change (∑' x : α, if p x then Pr[= x | oa] else 0) =
-    μ ((oa >>= fun a => pure (if p a then 1 else 0)) : OracleComp spec ℝ≥0∞)
-  rw [μ_bind_eq_tsum]
-  refine tsum_congr ?_
-  intro x
-  have hμ :
-      μ (pure (if p x then 1 else 0) : OracleComp spec ℝ≥0∞) = (if p x then 1 else 0) := by
-    simpa using
-      (MAlgOrdered.μ_pure (m := OracleComp spec) (l := ℝ≥0∞) (x := if p x then 1 else 0))
-  rw [hμ]
-  split_ifs <;> simp
+  simp only [wp_eq_tsum, probEvent_eq_tsum_ite, mul_ite, mul_one, mul_zero]
 
 /-- `probOutput` as a WP of a singleton-indicator postcondition. -/
 lemma probOutput_eq_wp_indicator (oa : OracleComp spec α) [DecidableEq α] (x : α) :
@@ -329,36 +309,13 @@ lemma probOutput_eq_wp_indicator (oa : OracleComp spec α) [DecidableEq α] (x :
 theorem wp_liftM_query (t : spec.Domain) (post : spec.Range t → ℝ≥0∞) :
     wp (liftM (query t) : OracleComp spec (spec.Range t)) post =
       ∑' u : spec.Range t, (1 / Fintype.card (spec.Range t) : ℝ≥0∞) * post u := by
-  rw [wp_eq_mAlgOrdered_wp, MAlgOrdered.wp]
-  calc
-    μ (do let a ← liftM (query t); pure (post a))
-        = ∑' u : spec.Range t,
-            Pr[= u | (liftM (query t) : OracleComp spec (spec.Range t))] *
-              μ (pure (post u) : OracleComp spec ℝ≥0∞) := by
-            simpa using
-              (μ_bind_eq_tsum
-                (oa := (liftM (query t) : OracleComp spec (spec.Range t)))
-                (ob := fun a => pure (post a)))
-    _ = ∑' u : spec.Range t,
-          (1 / Fintype.card (spec.Range t) : ℝ≥0∞) * post u := by
-            refine tsum_congr ?_
-            intro u
-            have hμ :
-                μ (pure (post u) : OracleComp spec ℝ≥0∞) = post u := by
-              let _ : DecidableEq ℝ≥0∞ := Classical.decEq ℝ≥0∞
-              simp [μ, probOutput_pure]
-            have hprob :
-                Pr[= u | (liftM (query t) : OracleComp spec (spec.Range t))] =
-                  (1 / Fintype.card (spec.Range t) : ℝ≥0∞) :=
-              (probOutput_query_eq_div (spec := spec) t u)
-            rw [hμ]
-            simp [hprob]
+  simp only [wp_eq_tsum, probOutput_query_eq_div]
 
 /-- Quantitative WP rule for a uniform oracle query. -/
 @[game_rule] theorem wp_query (t : spec.Domain) (post : spec.Range t → ℝ≥0∞) :
     wp (query t : OracleComp spec (spec.Range t)) post =
-      ∑' u : spec.Range t, (1 / Fintype.card (spec.Range t) : ℝ≥0∞) * post u := by
-  simpa using wp_liftM_query (spec := spec) t post
+      ∑' u : spec.Range t, (1 / Fintype.card (spec.Range t) : ℝ≥0∞) * post u :=
+  wp_liftM_query (spec := spec) t post
 
 /-- `HasQuery.query` form of `wp_query`: after the `HasQuery` ergonomic
 cutover, the bare `query t : OracleComp spec _` in user code elaborates to
@@ -376,19 +333,7 @@ variable [SampleableType α]
 @[game_rule] theorem wp_uniformSample (post : α → ℝ≥0∞) :
     wp ($ᵗ α) post =
       ∑' x, Pr[= x | ($ᵗ α : ProbComp α)] * post x := by
-  rw [wp_eq_mAlgOrdered_wp, MAlgOrdered.wp]
-  calc
-    μ (do let a ← $ᵗ α; pure (post a))
-        = ∑' x, Pr[= x | ($ᵗ α : ProbComp α)] * μ (pure (post x) : ProbComp ℝ≥0∞) := by
-          simpa using
-            (μ_bind_eq_tsum (oa := ($ᵗ α : ProbComp α)) (ob := fun a => pure (post a)))
-    _ = ∑' x, Pr[= x | ($ᵗ α : ProbComp α)] * post x := by
-          refine tsum_congr ?_
-          intro x
-          have hμ : μ (pure (post x) : ProbComp ℝ≥0∞) = post x := by
-            let _ : DecidableEq ℝ≥0∞ := Classical.decEq ℝ≥0∞
-            simp [μ, probOutput_pure]
-          rw [hμ]
+  rw [wp_eq_tsum]
 
 end Sampling
 
@@ -462,26 +407,23 @@ theorem triple_replicate_succ {pre : ℝ≥0∞} {oa : OracleComp spec α} {n : 
     (h : Triple pre oa
           (fun x => wp (oa.replicate n)
             (fun xs => post (x :: xs)))) :
-    Triple pre (oa.replicate (n + 1)) post := by
-  refine triple_ofLE ?_
-  rw [wp_replicate_succ]; exact triple_toLE h
+    Triple pre (oa.replicate (n + 1)) post :=
+  triple_ofLE (by rw [wp_replicate_succ]; exact triple_toLE h)
 
 theorem triple_list_mapM_cons {pre : ℝ≥0∞} {x : α} {xs : List α}
     {f : α → OracleComp spec β} {post : List β → ℝ≥0∞}
     (h : Triple pre (f x)
           (fun y => wp (xs.mapM f)
             (fun ys => post (y :: ys)))) :
-    Triple pre ((x :: xs).mapM f) post := by
-  refine triple_ofLE ?_
-  rw [wp_list_mapM_cons]; exact triple_toLE h
+    Triple pre ((x :: xs).mapM f) post :=
+  triple_ofLE (by rw [wp_list_mapM_cons]; exact triple_toLE h)
 
 theorem triple_list_foldlM_cons {pre : ℝ≥0∞} {x : α} {xs : List α}
     {f : σ → α → OracleComp spec σ} {init : σ} {post : σ → ℝ≥0∞}
     (h : Triple pre (f init x)
           (fun s => wp (xs.foldlM f s) post)) :
-    Triple pre ((x :: xs).foldlM f init) post := by
-  refine triple_ofLE ?_
-  rw [wp_list_foldlM_cons]; exact triple_toLE h
+    Triple pre ((x :: xs).foldlM f init) post :=
+  triple_ofLE (by rw [wp_list_foldlM_cons]; exact triple_toLE h)
 
 /-! ## Loop invariant rules -/
 
@@ -568,10 +510,10 @@ lemma wp_congr_evalDist {oa ob : OracleComp spec α}
   exact μ_congr_evalDist (by simp [h])
 
 lemma μ_cross_congr_evalDist {ι' : Type*} {spec' : OracleSpec ι'}
-    [spec'.Fintype] [spec'.Inhabited]
+    [IsUniformSpec spec']
     {oa : OracleComp spec' ℝ≥0∞} {ob : OracleComp spec ℝ≥0∞}
     (h : 𝒟[oa] = 𝒟[ob]) :
-    @μ _ spec' _ _ oa = μ ob := by
+    @μ _ spec' _ oa = μ ob := by
   simp only [μ]
   exact tsum_congr fun x => by
     change 𝒟[oa] x * x = 𝒟[ob] x * x

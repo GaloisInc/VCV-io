@@ -8,7 +8,7 @@ import VCVio.EvalDist.Monad.Map
 /-!
 # Evaluation Distributions of Computations with `BitVec`
 
-Lemmas about `probOutput` involving `BitVec`, generic over any monad `m` with `[HasEvalSPMF m]`.
+Lemmas about `probOutput` involving `BitVec`, generic over any monad `m` with `[MonadLiftT m SPMF]`.
 
 The `SampleableType (BitVec n)` instance is defined in
 `VCVio.OracleComp.Constructions.SampleableType`.
@@ -16,7 +16,9 @@ The `SampleableType (BitVec n)` instance is defined in
 
 open BitVec
 
-variable {α β γ : Type _} {m : Type _ → Type _} [Monad m] [LawfulMonad m] [HasEvalSPMF m]
+variable {α β γ : Type _} {m : Type _ → Type _} [Monad m] [LawfulMonad m]
+  [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
+  [MonadLiftT m SetM] [LawfulMonadLiftT m SetM] [EvalDistCompatible m]
 
 @[simp, grind =]
 lemma probOutput_ofFin_map {n : ℕ} (mx : m (Fin (2 ^ n))) (x : BitVec n) :
@@ -26,10 +28,10 @@ lemma probOutput_ofFin_map {n : ℕ} (mx : m (Fin (2 ^ n))) (x : BitVec n) :
 lemma probOutput_bitVec_toFin_map {n : ℕ} (mx : m (BitVec n)) (x : Fin (2 ^ n)) :
     Pr[= x | toFin <$> mx] = Pr[= ofFin x | mx] := by aesop
 
+omit [MonadLiftT m SetM] [LawfulMonadLiftT m SetM] [EvalDistCompatible m] in
 @[simp]
 lemma probOutput_xor_map {n : ℕ} (mx : m (BitVec n)) (x y : BitVec n) :
     Pr[= y | (x ^^^ ·) <$> mx] = Pr[= x ^^^ y | mx] := by
-  have hinj : Function.Injective (x ^^^ ·) := fun a b h => by
-    have := congrArg (x ^^^ ·) h; simp only [xor_self_xor] at this; exact this
+  have hinj : Function.Injective (x ^^^ ·) := fun a b h => by simpa using congrArg (x ^^^ ·) h
   conv_lhs => rw [show y = x ^^^ (x ^^^ y) by simp]
   exact probOutput_map_injective mx hinj (x ^^^ y)

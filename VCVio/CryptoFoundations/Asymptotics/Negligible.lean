@@ -3,8 +3,8 @@ Copyright (c) 2024 Devon Tuma. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Devon Tuma
 -/
-import Mathlib.Analysis.Asymptotics.SuperpolynomialDecay
 import Mathlib.Algebra.Polynomial.Eval.Degree
+import Mathlib.Analysis.Asymptotics.SuperpolynomialDecay
 
 /-!
 # Negligible Functions
@@ -25,23 +25,21 @@ open ENNReal Asymptotics Filter
 
 /-- A function `f` is negligible if it decays faster than any polynomial function. -/
 def negligible (f : ℕ → ℝ≥0∞) : Prop :=
-  SuperpolynomialDecay atTop (fun x ↦ ↑x) f
+  SuperpolynomialDecay atTop (fun x => ↑x) f
 
 @[simp] def negligible_iff (f : ℕ → ℝ≥0∞) :
-    negligible f ↔ SuperpolynomialDecay atTop (fun x ↦ ↑x) f := Iff.rfl
+    negligible f ↔ SuperpolynomialDecay atTop (fun x => ↑x) f := Iff.rfl
 
 lemma negligible_zero : negligible 0 := superpolynomialDecay_zero _ _
 
 lemma negligible_of_zero {f : ℕ → ℝ≥0∞} (hf : ∀ n, f n = 0) : negligible f :=
-  have : f = 0 := funext hf; this ▸ negligible_zero
+  funext hf ▸ negligible_zero
 
 /-- Negligibility is monotone: if `f ≤ g` pointwise and `g` is negligible, then `f` is. -/
 theorem negligible_of_le {f g : ℕ → ℝ≥0∞} (hfg : ∀ n, f n ≤ g n) (hg : negligible g) :
-    negligible f := by
-  intro p
-  apply tendsto_of_tendsto_of_tendsto_of_le_of_le tendsto_const_nhds (hg p)
-  · intro n; exact zero_le _
-  · intro n; exact mul_le_mul_of_nonneg_left (hfg n) (zero_le _)
+    negligible f := fun p =>
+  tendsto_of_tendsto_of_tendsto_of_le_of_le tendsto_const_nhds (hg p)
+    (fun _ => zero_le) (fun n => mul_le_mul_of_nonneg_left (hfg n) zero_le)
 
 /-- Sum of two negligible functions is negligible. -/
 theorem negligible_add {f g : ℕ → ℝ≥0∞} (hf : negligible f) (hg : negligible g) :
@@ -54,9 +52,8 @@ theorem negligible_const_mul {f : ℕ → ℝ≥0∞} (hf : negligible f)
     {c : ℝ≥0∞} (hc : c ≠ ⊤) :
     negligible (fun n => c * f n) := by
   intro p
-  have h := ENNReal.Tendsto.const_mul (hf p) (.inr hc)
-  simp only [mul_zero] at h
-  exact h.congr (fun n => by rw [mul_left_comm])
+  simpa only [mul_zero] using
+    (ENNReal.Tendsto.const_mul (hf p) (.inr hc)).congr (fun n => by rw [mul_left_comm])
 
 /-- A finite sum of negligible functions is negligible. -/
 theorem negligible_sum {ι : Type*} {s : Finset ι} {f : ι → ℕ → ℝ≥0∞}
@@ -64,7 +61,7 @@ theorem negligible_sum {ι : Type*} {s : Finset ι} {f : ι → ℕ → ℝ≥0�
     negligible (fun n => ∑ i ∈ s, f i n) := by
   classical
   induction s using Finset.induction with
-  | empty => exact negligible_of_zero (fun _ => by simp)
+  | empty => exact negligible_zero
   | insert _ _ hnotin ih =>
     simp_rw [Finset.sum_insert hnotin]
     exact negligible_add
@@ -74,10 +71,8 @@ theorem negligible_sum {ι : Type*} {s : Finset ι} {f : ι → ℕ → ℝ≥0�
 /-- If `f` is negligible, then `fun n => (↑n)^d * f n` is negligible for any fixed `d`.
 Absorbs polynomial powers of the parameter into the superpolynomial decay. -/
 theorem negligible_pow_mul {f : ℕ → ℝ≥0∞} (hf : negligible f) (d : ℕ) :
-    negligible (fun n => (↑n : ℝ≥0∞) ^ d * f n) := fun k => by
-  change Tendsto (fun (n : ℕ) => (↑n : ℝ≥0∞) ^ k * ((↑n : ℝ≥0∞) ^ d * f n)) atTop (nhds 0)
-  simp_rw [← mul_assoc, ← pow_add]
-  exact hf (k + d)
+    negligible (fun n => (↑n : ℝ≥0∞) ^ d * f n) :=
+  hf.param_pow_mul d
 
 /-- If `f` is negligible, then `fun n => ↑(p.eval n) * f n` is negligible for any polynomial `p`.
 This is the key lemma for handling polynomial-loss security reductions. -/
@@ -88,10 +83,7 @@ theorem negligible_polynomial_mul {f : ℕ → ℝ≥0∞} (hf : negligible f)
       ∑ i ∈ Finset.range (p.natDegree + 1),
         ↑(p.coeff i) * ((↑n : ℝ≥0∞) ^ i * f n) := by
     intro n
-    simp_rw [← mul_assoc, ← Finset.sum_mul]
-    congr 1
-    have h := @Polynomial.eval_eq_sum_range ℕ _ p n
-    rw [h]; push_cast; rfl
+    simp [Polynomial.eval_eq_sum_range, Finset.sum_mul, mul_assoc]
   simp_rw [heq]
   exact negligible_sum fun i _ =>
     negligible_const_mul (negligible_pow_mul hf i) (ENNReal.natCast_ne_top _)

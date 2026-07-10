@@ -35,29 +35,17 @@ This references the functional versions of `getPutativeRoot` and `buildMerkleTre
 -/
 @[simp, grind =]
 theorem functional_completeness {s : Skeleton}
-  (idx : SkeletonLeafIndex s)
-  (leaf_data_tree : LeafData α s)
-  (hash : α → α → α) :
+    (idx : SkeletonLeafIndex s)
+    (leaf_data_tree : LeafData α s)
+    (hash : α → α → α) :
   getPutativeRootWithHash
     idx
     (leaf_data_tree.get idx)
     (generateProof (buildMerkleTreeWithHash leaf_data_tree hash) idx)
     hash =
   (buildMerkleTreeWithHash leaf_data_tree hash).getRootValue := by
-  induction idx with
-  | ofLeaf =>
-      cases leaf_data_tree with
-      | leaf a =>
-          grind
-  | ofLeft idxLeft ih =>
-      cases leaf_data_tree with
-      | internal left right =>
-          grind [Vector.tail_cons, Vector.head_cons]
-  | ofRight idxRight ih =>
-      cases leaf_data_tree with
-      | internal left right =>
-          grind [Vector.tail_cons, Vector.head_cons]
-
+  induction idx <;> cases leaf_data_tree <;>
+    grind [List.Vector.tail_cons, List.Vector.head_cons, SkeletonLeafIndex.depth]
 
 /--
 Completeness theorem for Merkle trees.
@@ -76,20 +64,10 @@ theorem completeness [DecidableEq α] [Inhabited α] [SampleableType α] {s}
       let verified ← (verifyProof (m := OracleComp (spec α)) idx (leaf_data_tree.get idx)
         (cache.getRootValue) proof)
       return verified)).run preexisting_cache] = 1 := by
-  -- Reduce a probability-one claim about the random-oracle simulation to a value-level claim
-  -- about `evalWithAnswerFn` for every answer function agreeing with the cache.
   refine (probEvent_eq_one_simulateQ_randomOracle_run_iff (spec := spec α)
     (p := fun b : Bool => b = true) _ _).mpr ?_
   intro f _hf
-  -- Unfold `evalWithAnswerFn` and reduce simulation through the do-block, then collapse the
-  -- residual `BEq` test to a value equality and finish by `functional_completeness`.
-  change (simulateQ f (do
-    let cache ← buildMerkleTree leaf_data_tree
-    let proof := generateProof cache idx
-    let verified ← (verifyProof (m := OracleComp (spec α)) idx (leaf_data_tree.get idx)
-      (cache.getRootValue) proof)
-    return verified) : Id Bool) = (true : Bool)
-  simp only [verifyProof, simulateQ_bind, simulateQ_pure,
+  simp only [evalWithAnswerFn, verifyProof, simulateQ_bind, simulateQ_pure,
     simulateQ_buildMerkleTree, simulateQ_getPutativeRoot]
   change ((_ : α) == _) = true
   rw [beq_iff_eq]

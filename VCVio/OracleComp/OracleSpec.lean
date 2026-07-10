@@ -8,12 +8,19 @@ import PolyFun.PFunctor.Basic
 /-!
 # Specifications of Available Oracles
 
+An `OracleSpec ι` specifies a collection of oracles indexed by `ι`, given as the map sending
+each index to the output type of that oracle. It is the same data as a `PFunctor`, and the
+bridge `toPFunctor` / `ofPFunctor` exposes that algebra: oracle specifications can be combined
+with `+` (a disjoint sum of oracle sets), `*`, `OracleSpec.sigma`, and `OracleSpec.pi`. The
+empty specification `[]ₒ` provides no oracles.
+
+This file also defines the standard sampling specifications `coinSpec`, `unifSpec`, and
+`probSpec`.
 -/
 
 universe u u' v w
 
-
-/-- An `OracleSpec ι` is specieifes a set of oracles indexed by `ι`.
+/-- An `OracleSpec ι` specifies a set of oracles indexed by `ι`.
 Defined as a map from each input to the type of the oracle's output. -/
 def OracleSpec (ι : Type u) : Type (max u (v + 1)) :=
   ι → Type v
@@ -48,17 +55,9 @@ instance {spec : OracleSpec ι} [h : spec.Inhabited] (t : spec.Domain) :
 
 protected class DecidableEq (spec : OracleSpec ι) extends PFunctor.DecidableEq spec.toPFunctor
 
-instance {spec : OracleSpec ι} [h : spec.DecidableEq] :
-  DecidableEq spec.Domain := h.decidableEq_A
+instance {spec : OracleSpec ι} [h : spec.DecidableEq] : DecidableEq spec.Domain := h.decidableEq_A
 instance {spec : OracleSpec ι} [h : spec.DecidableEq] (t : spec.Domain) :
   DecidableEq (spec.Range t) := h.decidableEq_B t
-
-/-- Type-class gadget to enable probability notation for computation over an `OracleSpec`.
-Can be defined for any `spec` with `spec.Range` finite and inhabited, but generally should
-only be instantied for things like `coinSpec` or `unifSpec`.
-TODO: Examine if this should be used as a requirement in `evalDist` instances.
-Just forces more explicit differentiation of when the semantics should apply. -/
-protected class IsProbSpec (spec : OracleSpec ι) [spec.Inhabited] [spec.Fintype]
 
 section ofFn
 
@@ -121,7 +120,7 @@ end add
 
 section sigma
 
-/-- Given an indexed set of `OracleSpec`, specifiy access to all of the oracles,
+/-- Given an indexed set of `OracleSpec`, specify access to all of the oracles,
 by requiring an index into the corresponding oracle in the input. -/
 protected def sigma {ι} {τ : ι → Type _} (specs : (i : ι) → OracleSpec (τ i)) :
     OracleSpec ((i : ι) × (specs i).Domain) :=
@@ -161,8 +160,8 @@ end mul
 
 section pi
 
-/-- Given an indexed set of `OracleSpec`, specifiy access to an oracle that given an input to
-the oracle for each index returns an index and an ouptut for that index. -/
+/-- Given an indexed set of `OracleSpec`, specify access to an oracle that given an input to
+the oracle for each index returns an index and an output for that index. -/
 protected def pi {ι : Type _} {τ : ι → Type _} (specs : (i : ι) → OracleSpec (τ i)) :
     OracleSpec ((i : ι) → (specs i).Domain) :=
   fun t => (i : ι) × specs i (t i)
@@ -208,8 +207,8 @@ By adding `1` to the index we avoid selection from the empty type `Fin 0 ≃ emp
 end unifSpec
 
 section probSpec
-/-- NOTE: There isn't really any built in
-Select uniformly from a range (not starting from zero). -/
+/-- Select uniformly from `Fin (m + 1)` for a pair `(n, m) : ℕ × ℕ`, where the first
+component is unused. -/
 @[inline, reducible] def probSpec : OracleSpec (ℕ × ℕ) :=
   OracleSpec.ofFn fun (_n, m) => Fin (m + 1)
 

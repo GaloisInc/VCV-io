@@ -3,9 +3,9 @@ Copyright (c) 2025 Devon Tuma. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Devon Tuma
 -/
-import VCVio.OracleComp.OracleComp
-import Mathlib.Algebra.Polynomial.Eval.Defs
 import Mathlib.Algebra.MvPolynomial.Eval
+import Mathlib.Algebra.Polynomial.Eval.Defs
+import VCVio.OracleComp.OracleComp
 
 /-!
 # Implementing Oracle Queries in Other Monads
@@ -26,7 +26,7 @@ open scoped OracleSpec.PrimitiveQuery
 This is defined in terms of a mapping of input elements to oracle outputs,
 which extends to a mapping on `OracleQuery spec` by copying over the continuation,
 and then further to `OracleComp spec` by preserving the pure and bind operations.
-See `QueryImpl.map_query` and `HasSimulateQ` for these two operations. -/
+See `QueryImpl.mapQuery` and `simulateQ` for these two operations. -/
 @[reducible] def QueryImpl {ι} (spec : OracleSpec ι) (m : Type u → Type v) :=
   (x : spec.Domain) → m (spec.Range x)
 
@@ -59,6 +59,13 @@ def mapQuery {α} [Functor m] (impl : QueryImpl spec m)
 @[simp] lemma mapQuery_query [Functor m] [LawfulFunctor m] (impl : QueryImpl spec m)
     (t : spec.Domain) : impl.mapQuery (query t) = impl t := by
   simp [mapQuery]
+
+/-- Reduce `mapQuery` on an explicit constructor-form query. Companion to `mapQuery_query`
+for queries that arise from `SubSpec`-lift normalization (which produces
+`OracleQuery.mk`/anonymous-constructor forms rather than `OracleSpec.query`). -/
+@[simp] lemma mapQuery_mk {α} [Functor m] (impl : QueryImpl spec m)
+    (t : spec.Domain) (f : spec.Range t → α) :
+    impl.mapQuery (OracleQuery.mk t f) = f <$> impl t := rfl
 
 section liftTarget
 
@@ -191,5 +198,13 @@ def toQueryImpl [HasQuery spec m] : QueryImpl spec m :=
 @[simp]
 lemma toQueryImpl_apply [HasQuery spec m] (t : spec.Domain) :
     toQueryImpl (spec := spec) (m := m) t = HasQuery.query (spec := spec) (m := m) t := rfl
+
+/-- On `OracleComp spec`, `HasQuery.toQueryImpl` is the identity handler `QueryImpl.id'`.
+
+Not `@[simp]`: in `unifFwdImpl`-style definitions where `toQueryImpl.liftTarget` appears
+inside a `simp [unifFwdImpl]` call, the rewrite `toQueryImpl → id' = liftTarget _ (id _)`
+nests `liftTarget`s and triggers unbounded depth. Use via explicit `rw` instead. -/
+lemma toQueryImpl_eq_id' :
+    (toQueryImpl : QueryImpl spec (OracleComp spec)) = QueryImpl.id' spec := rfl
 
 end HasQuery

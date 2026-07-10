@@ -8,6 +8,8 @@ import VCVio.OracleComp.SimSemantics.SimulateQ
 import VCVio.OracleComp.EvalDist
 import VCVio.EvalDist.Bool
 import VCVio.EvalDist.Prod
+import VCVio.EvalDist.Fintype
+import ToMathlib.Data.FinEnum
 import Init.Data.UInt.Lemmas
 import Mathlib.Data.FinEnum
 import Mathlib.Data.Fintype.Perm
@@ -42,13 +44,13 @@ class SampleableType (β : Type) where
 
 /-- Select uniformly from the type `β` using a type-class provided definition.
 NOTE: naming is somewhat strange now that `Fintype` isn't explicitly required. -/
-def uniformSample (β : Type) [h : SampleableType β] :
-    ProbComp β := h.selectElem
+def uniformSample (β : Type) [h : SampleableType β] : ProbComp β := h.selectElem
 
 notation:90 "$ᵗ " α:91 => uniformSample α
 
 variable (α : Type) [hα : SampleableType α]
 
+/-- Every element of a uniform sample over a `Fintype` has output probability `card⁻¹`. -/
 @[simp, grind =]
 lemma probOutput_uniformSample [Fintype α] (x : α) :
     Pr[= x | $ᵗ α] = (Fintype.card α : ℝ≥0∞)⁻¹ := by
@@ -63,6 +65,7 @@ lemma probOutput_uniformSample [Fintype α] (x : α) :
 lemma probOutput_uniformSample_inj (x y : α) : Pr[= x | $ᵗ α] = Pr[= y | $ᵗ α] :=
   SampleableType.probOutput_selectElem_eq _ _
 
+/-- Pushing a uniform sample through a bijection of `α` preserves each output probability. -/
 lemma probOutput_map_bijective_uniformSample
     {f : α → α} (hf : Function.Bijective f) (x : α) :
     Pr[= x | f <$> ($ᵗ α)] = Pr[= x | $ᵗ α] := by
@@ -79,9 +82,7 @@ lemma probOutput_map_bijective_uniform_cross
   letI := Fintype.ofFinite α
   letI := Fintype.ofBijective f hf
   obtain ⟨x, rfl⟩ := hf.surjective y
-  rw [probOutput_map_injective ($ᵗ α) hf.injective x,
-      probOutput_uniformSample, probOutput_uniformSample,
-      Fintype.card_of_bijective hf]
+  simp [probOutput_map_injective ($ᵗ α) hf.injective x, Fintype.card_of_bijective hf]
 
 /-- Binding after pushing forward uniform sampling along a bijection preserves output
 probabilities. -/
@@ -90,50 +91,24 @@ lemma probOutput_bind_bijective_uniform_cross
     (f : α → β) (hf : Function.Bijective f) (g : β → ProbComp γ) (z : γ) :
     Pr[= z | ($ᵗ α) >>= fun x => g (f x)] =
       Pr[= z | ($ᵗ β) >>= fun y => g y] := by
-  classical
-  letI := Fintype.ofFinite α
-  haveI := Fintype.ofBijective f hf
-  have h : (($ᵗ α) >>= fun x => g (f x)) =
-      ((f <$> ($ᵗ α)) >>= g) := by
-    simp [monad_norm]
-  rw [h, probOutput_bind_eq_tsum, probOutput_bind_eq_tsum]
-  congr 1
-  funext y
-  congr 1
-  exact probOutput_map_bijective_uniform_cross (α := α) (β := β) f hf y
+  simp_rw [show (($ᵗ α) >>= fun x => g (f x)) = ((f <$> ($ᵗ α)) >>= g) from by simp [monad_norm],
+    probOutput_bind_eq_tsum, probOutput_map_bijective_uniform_cross (α := α) (β := β) f hf]
 
+/-- Left-translation by a constant in `AddGroup α` preserves the uniform output distribution,
+since `(m + ·)` is a bijection on `α` with inverse `(-m + ·)`. -/
 lemma probOutput_add_left_uniform [AddGroup α] (m x : α) :
-    Pr[= x | (m + ·) <$> ($ᵗ α)] = Pr[= x | $ᵗ α] := by
-  have h : Pr[= m + (-m + x) | ((m + ·) : α → α) <$> ($ᵗ α)] =
-      Pr[= -m + x | $ᵗ α] :=
-    probOutput_map_injective
-      (mx := ($ᵗ α))
-      (f := (m + ·))
-      (hf := by intro a b hab; exact add_left_cancel hab)
-      (x := -m + x)
-  calc
-    Pr[= x | ((m + ·) : α → α) <$> ($ᵗ α)]
-        = Pr[= m + (-m + x) | ((m + ·) : α → α) <$> ($ᵗ α)] := by
-          congr 1
-          symm
-          exact add_neg_cancel_left m x
-    _ = Pr[= -m + x | $ᵗ α] := h
-    _ = Pr[= x | $ᵗ α] := by
-          symm
-          simpa [uniformSample] using
-            (SampleableType.probOutput_selectElem_eq (β := α) x (-m + x))
+    Pr[= x | (m + ·) <$> ($ᵗ α)] = Pr[= x | $ᵗ α] :=
+  probOutput_map_bijective_uniformSample α (hf := AddGroup.addLeft_bijective m) x
 
+/-- Left-translating the bound variable of a uniform sample by a constant in `AddGroup α`
+preserves the output distribution of the subsequent computation. -/
 lemma probOutput_bind_add_left_uniform [AddGroup α] {β : Type}
     (m : α) (f : α → ProbComp β) (z : β) :
     Pr[= z | (do let y ← $ᵗ α; f (m + y))] =
       Pr[= z | (do let y ← $ᵗ α; f y)] := by
-  have hleft :
-      (do let y ← $ᵗ α; f (m + y)) =
-        (((fun y : α => m + y) <$> ($ᵗ α)) >>= fun y => f y) := by
-    simp [monad_norm]
-  rw [hleft, probOutput_bind_eq_tsum, probOutput_bind_eq_tsum]
-  refine tsum_congr fun y => ?_
-  rw [probOutput_add_left_uniform (α := α) m y]
+  simp_rw [show (do let y ← $ᵗ α; f (m + y)) =
+      (((fun y : α => m + y) <$> ($ᵗ α)) >>= fun y => f y) from by simp [monad_norm],
+    probOutput_bind_eq_tsum, probOutput_add_left_uniform (α := α) m]
 
 /-- Right-translation analogue of `probOutput_add_left_uniform`: right-adding a constant to a
 uniform sample in `AddGroup α` preserves the output distribution, since `(· + m)` is a bijection
@@ -142,61 +117,47 @@ lemma probOutput_add_right_uniform [AddGroup α] (m x : α) :
     Pr[= x | ((· + m) : α → α) <$> ($ᵗ α)] = Pr[= x | $ᵗ α] :=
   probOutput_map_bijective_uniformSample α (hf := AddGroup.addRight_bijective m) x
 
+/-- Right-translating the bound variable of a uniform sample by a constant in `AddGroup α`
+preserves the output distribution of the subsequent computation. -/
 lemma probOutput_bind_add_right_uniform [AddGroup α] {β : Type}
     (m : α) (f : α → ProbComp β) (z : β) :
     Pr[= z | (do let y ← $ᵗ α; f (y + m))] =
       Pr[= z | (do let y ← $ᵗ α; f y)] := by
-  have hright :
-      (do let y ← $ᵗ α; f (y + m)) =
-        (((fun y : α => y + m) <$> ($ᵗ α)) >>= fun y => f y) := by
-    simp [monad_norm]
-  rw [hright, probOutput_bind_eq_tsum, probOutput_bind_eq_tsum]
-  refine tsum_congr fun y => ?_
-  rw [probOutput_add_right_uniform (α := α) m y]
+  simp_rw [show (do let y ← $ᵗ α; f (y + m)) =
+      (((fun y : α => y + m) <$> ($ᵗ α)) >>= fun y => f y) from by simp [monad_norm],
+    probOutput_bind_eq_tsum, probOutput_add_right_uniform (α := α) m]
 
 /-- Translating a uniform additive sample preserves the full evaluation distribution. -/
 @[simp]
 lemma evalDist_add_left_uniform [AddGroup α] (m : α) :
-    𝒟[((m + ·) : α → α) <$> ($ᵗ α)] =
-      𝒟[$ᵗ α] := by
-  apply evalDist_ext
-  intro x
-  exact probOutput_add_left_uniform (α := α) m x
+    𝒟[((m + ·) : α → α) <$> ($ᵗ α)] = 𝒟[$ᵗ α] :=
+  evalDist_ext (probOutput_add_left_uniform (α := α) m)
 
 /-- Two additive translations of a uniform sample have the same evaluation distribution. -/
 lemma evalDist_add_left_uniform_eq [AddGroup α] (m₁ m₂ : α) :
     𝒟[((m₁ + ·) : α → α) <$> ($ᵗ α)] =
-      𝒟[((m₂ + ·) : α → α) <$> ($ᵗ α)] := by
-  trans 𝒟[$ᵗ α]
-  · exact evalDist_add_left_uniform (α := α) m₁
-  · exact (evalDist_add_left_uniform (α := α) m₂).symm
+      𝒟[((m₂ + ·) : α → α) <$> ($ᵗ α)] :=
+  (evalDist_add_left_uniform (α := α) m₁).trans (evalDist_add_left_uniform (α := α) m₂).symm
 
 /-- Right-translation analogue of `evalDist_add_left_uniform`: right-adding a constant to a
 uniform sample in `AddGroup α` preserves the full evaluation distribution. -/
 @[simp]
 lemma evalDist_add_right_uniform [AddGroup α] (m : α) :
-    𝒟[((· + m) : α → α) <$> ($ᵗ α)] =
-      𝒟[$ᵗ α] := by
-  apply evalDist_ext
-  intro x
-  exact probOutput_add_right_uniform (α := α) m x
+    𝒟[((· + m) : α → α) <$> ($ᵗ α)] = 𝒟[$ᵗ α] :=
+  evalDist_ext (probOutput_add_right_uniform (α := α) m)
 
 /-- Two right-translations of a uniform sample have the same evaluation distribution. -/
 lemma evalDist_add_right_uniform_eq [AddGroup α] (m₁ m₂ : α) :
     𝒟[((· + m₁) : α → α) <$> ($ᵗ α)] =
-      𝒟[((· + m₂) : α → α) <$> ($ᵗ α)] := by
-  trans 𝒟[$ᵗ α]
-  · exact evalDist_add_right_uniform (α := α) m₁
-  · exact (evalDist_add_right_uniform (α := α) m₂).symm
+      𝒟[((· + m₂) : α → α) <$> ($ᵗ α)] :=
+  (evalDist_add_right_uniform (α := α) m₁).trans (evalDist_add_right_uniform (α := α) m₂).symm
 
 /-- Pushing forward uniform sampling via a bijection preserves the full evaluation distribution. -/
 lemma evalDist_map_bijective_uniform_cross
     {β : Type} [SampleableType β] [Finite α]
     (f : α → β) (hf : Function.Bijective f) :
-    𝒟[f <$> ($ᵗ α)] = 𝒟[$ᵗ β] := by
-  apply evalDist_ext
-  intro y
-  exact probOutput_map_bijective_uniform_cross (α := α) (β := β) f hf y
+    𝒟[f <$> ($ᵗ α)] = 𝒟[$ᵗ β] :=
+  evalDist_ext (probOutput_map_bijective_uniform_cross (α := α) (β := β) f hf)
 
 /-- **Bijective uniform + right-translation gives uniform.** Sampling `x ← $ᵗ α`, transporting
 through a bijection `f : α → β`, and right-adding any fixed `m : β` yields the same distribution
@@ -210,17 +171,12 @@ lemma evalDist_bind_bijective_add_right_uniform {β γ : Type}
     (f : α → β) (hf : Function.Bijective f) (m : β) (cont : β → ProbComp γ) :
     𝒟[do let x ← ($ᵗ α); cont (f x + m)] =
       𝒟[do let y ← ($ᵗ β); cont y] := by
-  have hbind :
-      (do let x ← ($ᵗ α); cont (f x + m)) =
-        (f <$> ($ᵗ α)) >>= fun y => cont (y + m) := by
-    simp [monad_norm]
-  rw [hbind, evalDist_bind,
-      evalDist_map_bijective_uniform_cross (α := α) (β := β) f hf, ← evalDist_bind]
-  have hshift :
-      (do let y ← ($ᵗ β); cont (y + m)) =
-        (((· + m) : β → β) <$> ($ᵗ β)) >>= cont := by
-    simp [monad_norm]
-  rw [hshift, evalDist_bind, evalDist_add_right_uniform (α := β) m, ← evalDist_bind]
+  rw [show (do let x ← ($ᵗ α); cont (f x + m)) = (f <$> ($ᵗ α)) >>= fun y => cont (y + m)
+        from by simp [monad_norm], evalDist_bind,
+      evalDist_map_bijective_uniform_cross (α := α) (β := β) f hf, ← evalDist_bind,
+      show (do let y ← ($ᵗ β); cont (y + m)) = (((· + m) : β → β) <$> ($ᵗ β)) >>= cont
+        from by simp [monad_norm], evalDist_bind, evalDist_add_right_uniform (α := β) m,
+      ← evalDist_bind]
 
 /-- Constant-irrelevance form of `evalDist_bind_bijective_add_right_uniform`: sampling through a
 bijection and right-adding a constant has a distribution independent of the constant. Any two
@@ -242,11 +198,20 @@ lemma evalDist_uniformSample [Fintype α] [Nonempty α] :
     𝒟[$ᵗ α] = liftM (PMF.uniformOfFintype α) := by aesop
 
 @[simp, grind =]
-lemma support_uniformSample : support ($ᵗ α) = Set.univ := by
-  simp only [Set.ext_iff, Set.mem_univ, iff_true]
-  apply SampleableType.mem_support_selectElem
+lemma support_uniformSample : support ($ᵗ α) = Set.univ :=
+  Set.eq_univ_of_forall SampleableType.mem_support_selectElem
 
 lemma mem_support_uniformSample {x : α} : x ∈ support ($ᵗ α) := by grind
+
+/-- Uniform sampling never fails, so its support is nonempty (which in turn witnesses `Nonempty α`).
+Tagged `@[grind]` rather than `@[simp]` because `simp` rewrites `support ($ᵗ α)` to `Set.univ`
+first, after which it would need a separate `Nonempty α` fact. -/
+@[grind .]
+lemma support_uniformSample_nonempty : (support ($ᵗ α)).Nonempty := by
+  rw [Set.nonempty_iff_ne_empty]
+  intro h
+  rw [← probFailure_eq_one_iff, probFailure_uniformSample] at h
+  exact zero_ne_one h
 
 @[simp, grind =]
 lemma finSupport_uniformSample [Fintype α] [DecidableEq α] :
@@ -265,20 +230,14 @@ section instances
   mem_support_selectElem := by simp
   probOutput_selectElem_eq := by simp
 
-instance (n : ℕ) [hn : NeZero n] : SampleableType (Fin n) := by
-  cases n with
-  | zero => have := hn.out; contradiction
-  | succ n => exact SampleableType.Fin n
+instance (n : ℕ) [hn : NeZero n] : SampleableType (Fin n) :=
+  match n, hn with
+  | _ + 1, _ => SampleableType.Fin _
 
 instance (α : Type) [Unique α] : SampleableType α where
   selectElem := return default
   mem_support_selectElem x := Unique.eq_default x ▸ (by simp)
   probOutput_selectElem_eq x y := by rw [Unique.eq_default x, Unique.eq_default y]
-
-instance : SampleableType Bool where
-  selectElem := $! #v[true, false]
-  mem_support_selectElem x := by simp
-  probOutput_selectElem_eq x y := by simp
 
 /-- A sum of oracle specs with sampleable ranges again has sampleable ranges. -/
 instance {ι ι'} {spec : OracleSpec ι} {spec' : OracleSpec ι'}
@@ -288,18 +247,18 @@ instance {ι ι'} {spec : OracleSpec ι} {spec' : OracleSpec ι'}
   | .inr t => h' t
 
 /-- Select a uniform element from `α × β` by independently selecting from `α` and `β`. -/
-instance (α β : Type) [Fintype α] [Fintype β] [Inhabited α] [Inhabited β]
-    [SampleableType α] [SampleableType β] : SampleableType (α × β) where
+instance (α β : Type) [SampleableType α] [SampleableType β] : SampleableType (α × β) where
   selectElem := (·, ·) <$> ($ᵗ α) <*> ($ᵗ β)
   mem_support_selectElem x := by simp
-  probOutput_selectElem_eq x y := by simp
+  probOutput_selectElem_eq x y := by
+    simp only [probOutput_seq_map_prod_mk_eq_mul]; grind
 
 /-- A type equivalent to a `SampleableType` is also `SampleableType`. -/
 @[reducible] def SampleableType.ofEquiv {α β : Type} [SampleableType α] (e : α ≃ β) :
     SampleableType β where
   selectElem := e <$> ($ᵗ α)
-  mem_support_selectElem := fun x => by simp
-  probOutput_selectElem_eq := fun x y => by grind
+  mem_support_selectElem x := by simp
+  probOutput_selectElem_eq x y := by grind
 
 /-- Any finitely enumerable type can be sampled uniformly using the underlying equivalence. -/
 instance FinEnum.SampleableType (α : Type)
@@ -316,14 +275,19 @@ than an `instance` to avoid overlap with `FinEnum.SampleableType`. -/
   haveI : NeZero (Fintype.card α) := ⟨Fintype.card_ne_zero⟩
   SampleableType.ofEquiv (Fintype.equivFin α).symm
 
+/-- This typeclass shouldn't cause diamonds since `Nonempty` is propositional. -/
+instance SampleableType.Nonempty (α : Type) [h : SampleableType α] : Nonempty α :=
+  ⟨OracleComp.defaultResult h.selectElem⟩
+
 /-- This typeclass shouldn't cause diamonds since `Finite` is propositional. -/
 instance SampleableType.Finite (α : Type) [SampleableType α] : Finite α :=
-  Finite.of_finite_univ <| by simp only [← support_uniformSample, OracleComp.support_finite]
+  Finite.of_finite_univ <| support_uniformSample α ▸ OracleComp.support_finite _
 
 /-- We avoid making this an instance globally as many types already have a `Fintype` instance
 that would not be definitionally equal to this one. -/
 @[reducible]
-def SampleableType.Fintype (α : Type) [h : SampleableType α] [DecidableEq α] : Fintype α where
+noncomputable def SampleableType.Fintype (α : Type) [h : SampleableType α] [DecidableEq α] :
+    Fintype α where
   elems := finSupport ($ᵗ α)
   complete := by grind
 
@@ -331,49 +295,9 @@ instance (n : ℕ) [NeZero n] : FinEnum (ZMod n) where
   card := n
   equiv := (ZMod.finEquiv n).symm.toEquiv
 
-instance (n : ℕ) : FinEnum (BitVec n) where
-  card := 2 ^ n
-  equiv := ⟨BitVec.toFin, BitVec.ofFin, fun x => by simp, fun x => by simp⟩
-
-instance : FinEnum UInt8 where
-  card := 2 ^ 8
-  equiv := ⟨UInt8.toFin, UInt8.ofFin, fun x => by simp, fun x => by simp⟩
-
-instance : FinEnum UInt16 where
-  card := 2 ^ 16
-  equiv := ⟨UInt16.toFin, UInt16.ofFin, fun x => by simp, fun x => by simp⟩
-
-instance : FinEnum UInt32 where
-  card := 2 ^ 32
-  equiv := ⟨UInt32.toFin, UInt32.ofFin, fun x => by simp, fun x => by simp⟩
-
-instance : FinEnum UInt64 where
-  card := 2 ^ 64
-  equiv := ⟨UInt64.toFin, UInt64.ofFin, fun x => by simp, fun x => by simp⟩
-
 instance : FinEnum USize where
   card := 2 ^ System.Platform.numBits
   equiv := ⟨USize.toFin, USize.ofFin, fun x => by simp, fun x => by simp⟩
-
-instance : FinEnum Int8 where
-  card := 2 ^ 8
-  equiv := ⟨BitVec.toFin ∘ Int8.toBitVec, Int8.ofBitVec ∘ BitVec.ofFin,
-    fun x => by simp, fun x => by simp⟩
-
-instance : FinEnum Int16 where
-  card := 2 ^ 16
-  equiv := ⟨BitVec.toFin ∘ Int16.toBitVec, Int16.ofBitVec ∘ BitVec.ofFin,
-    fun x => by simp, fun x => by simp⟩
-
-instance : FinEnum Int32 where
-  card := 2 ^ 32
-  equiv := ⟨BitVec.toFin ∘ Int32.toBitVec, Int32.ofBitVec ∘ BitVec.ofFin,
-    fun x => by simp, fun x => by simp⟩
-
-instance : FinEnum Int64 where
-  card := 2 ^ 64
-  equiv := ⟨BitVec.toFin ∘ Int64.toBitVec, Int64.ofBitVec ∘ BitVec.ofFin,
-    fun x => by simp, fun x => by simp⟩
 
 instance : FinEnum ISize where
   card := 2 ^ System.Platform.numBits
@@ -396,9 +320,8 @@ instance (α : Type) (n : ℕ) [SampleableType α] : SampleableType (Vector α n
       have hpush : Function.Injective2 (Vector.push (α := α) (n := m)) := by
         intro xs ys x y hxy; simp [Vector.push_eq_push.mp hxy]
       simp only [Nat.recAux]
-      rw [← Vector.push_pop_back x]
-      rw [← Vector.push_pop_back y]
-      erw [probOutput_seq_map_eq_mul_of_injective2 _ _ _ hpush x.pop x.back,
+      erw [← Vector.push_pop_back x, ← Vector.push_pop_back y,
+        probOutput_seq_map_eq_mul_of_injective2 _ _ _ hpush x.pop x.back,
         probOutput_seq_map_eq_mul_of_injective2 _ _ _ hpush y.pop y.back,
         probOutput_uniformSample_inj, ih x.pop y.pop]
 
@@ -458,34 +381,228 @@ inhabited by `∅`, so no `Nonempty` hypothesis is needed. -/
 instance instSampleableTypeFinset {α : Type} [FinEnum α] : SampleableType (Finset α) :=
   inferInstance
 
-/-- Uniform sampling of size-`n` multisets over `α`. `Sym α n` is the correct finite analogue
-of `Multiset α`: a plain `Multiset α` is unbounded in multiplicity and thus not `Fintype`,
-while `Sym α n` is a `Fintype` whenever `α` is. The `Mathlib` instance lives in
-`Mathlib.Data.Fintype.Vector`; we lift it through `SampleableType.ofFintype`. -/
-noncomputable instance instSampleableTypeSym {α : Type} {n : ℕ}
-    [Fintype α] [DecidableEq α] [Nonempty α] : SampleableType (Sym α n) :=
-  haveI : Nonempty (Sym α n) := ⟨.replicate n (Classical.arbitrary α)⟩
-  SampleableType.ofFintype _
+/-- Uniform sampling of size-`n` multisets over a `FinEnum` type. `Sym α n` is the correct finite
+analogue of `Multiset α`: a plain `Multiset α` is unbounded in multiplicity and thus not finite,
+while `Sym α n` is finite whenever `α` is. We obtain a *computable* uniform sampler from the
+canonical enumeration `Sym.finEnum`; for a base type with only a `Fintype` instance use
+`SampleableType.ofFintype` instead.
 
-/-- Uniform sampling of permutations of a finite type. `Equiv.Perm α` has `n!` elements when
-`Fintype.card α = n`. Mathlib provides `Fintype (Equiv.Perm α)` via
-`Mathlib.Data.Fintype.Perm`; we lift through `SampleableType.ofFintype`. Useful for
-shuffle-based protocols and oblivious-permutation games. -/
-noncomputable instance instSampleableTypePerm {α : Type} [Fintype α] [DecidableEq α] :
+Note this is genuinely uniform on multisets: mapping a uniform `List.Vector α n` through
+`Sym.ofVector` is *not* (it weights each multiset by its number of orderings), so we enumerate
+`Sym α n` canonically rather than pushing forward from vectors. -/
+instance instSampleableTypeSym {α : Type} {n : ℕ} [FinEnum α] [Nonempty α] :
+    SampleableType (Sym α n) :=
+  letI : FinEnum (Sym α n) := Sym.finEnum n
+  haveI : Nonempty (Sym α n) := ⟨Sym.replicate n (Classical.arbitrary α)⟩
+  FinEnum.SampleableType _
+
+/-- Uniform sampling of permutations of a `FinEnum` type. `Equiv.Perm α` has `n!` elements when
+`Fintype.card α = n`. We obtain a *computable* uniform sampler from the canonical enumeration
+`Equiv.Perm.finEnum`. Useful for shuffle-based protocols and oblivious-permutation games. -/
+instance instSampleableTypePerm {α : Type} [FinEnum α] :
     SampleableType (Equiv.Perm α) :=
+  letI : FinEnum (Equiv.Perm α) := Equiv.Perm.finEnum
   haveI : Nonempty (Equiv.Perm α) := ⟨Equiv.refl α⟩
-  SampleableType.ofFintype _
+  FinEnum.SampleableType _
 
-/-- Uniform sampling of injections `β ↪ α` for finite types. The number of such embeddings is
+/-- Uniform sampling of injections `β ↪ α` for `FinEnum` types. The number of such embeddings is
 `α.card! / (α.card - β.card)!` when `β.card ≤ α.card`, else `0`; the `Nonempty (β ↪ α)`
-hypothesis rules out the latter case. Mathlib provides `Fintype (β ↪ α)` via
-`Mathlib.Data.Fintype.Pi`; we lift through `SampleableType.ofFintype`. -/
-noncomputable instance instSampleableTypeEmbedding {β α : Type}
-    [Fintype β] [Fintype α] [DecidableEq β] [DecidableEq α] [Nonempty (β ↪ α)] :
+hypothesis rules out the latter case. We obtain a *computable* uniform sampler from the canonical
+enumeration `Function.Embedding.finEnum` (itself computable, unlike Mathlib's `Fintype (β ↪ α)`). -/
+instance instSampleableTypeEmbedding {β α : Type}
+    [FinEnum β] [FinEnum α] [Nonempty (β ↪ α)] :
     SampleableType (β ↪ α) :=
-  SampleableType.ofFintype _
+  letI : FinEnum (β ↪ α) := Function.Embedding.finEnum
+  FinEnum.SampleableType _
+
+/-- A function from a finite type `D` with `Fintype` + `DecidableEq` (not necessarily `FinEnum`)
+to a `SampleableType` is itself `SampleableType`, transporting the `Fin (Fintype.card D) → α`
+sampler across the canonical equivalence `(D → α) ≃ (Fin (Fintype.card D) → α)`.
+
+This is the *noncomputable* counterpart to the computable `FinEnum`-domain instance
+`instSampleableTypeFunc`, and is given **lower priority** so that for a `FinEnum` domain the
+computable instance is preferred; it is the fallback for `Fintype` + `DecidableEq`-only domains. -/
+noncomputable instance (priority := 100) instSampleableTypePiFintype {D : Type}
+    [Fintype D] [DecidableEq D] {α : Type} [SampleableType α] : SampleableType (D → α) :=
+  -- Provide the `Fin (card D) → α` sampler explicitly: synthesizing it could loop, since for the
+  -- abstract `Fintype.card D` the overlapping `instSampleableTypeFunc` descends without converging.
+  letI : SampleableType (Fin (Fintype.card D) → α) := instSampleableTypeFinFunc
+  SampleableType.ofEquiv
+    (α := Fin (Fintype.card D) → α)
+    (Equiv.arrowCongr (Fintype.equivFin D).symm (Equiv.refl α))
 
 end instances
+
+section Marginalization
+
+/-- **Overwriting one coordinate of a uniform function table is measure-preserving.**
+
+Drawing a value `u` uniformly from `R`, then a full function table `g : D → R` uniformly, and
+returning `Function.update g t u` yields the same distribution as drawing the table directly.
+
+This is the `t`-marginal independence of the uniform (product) distribution on `D → R`: the value
+at coordinate `t` is uniform and independent of the others, so replacing it with a fresh
+independent uniform draw leaves the joint distribution unchanged. It is the marginalization step
+behind eager-sampling reformulations of oracle responses. -/
+lemma evalDist_uniformSample_bind_update
+    {D R : Type} [Finite D] [DecidableEq D] [Finite R] [Nonempty R]
+    [SampleableType R] [SampleableType (D → R)] (t : D) :
+    𝒟[do let u ← $ᵗ R; let g ← $ᵗ (D → R); pure (Function.update g t u)] =
+      𝒟[$ᵗ (D → R)] := by
+  classical
+  letI := Fintype.ofFinite D
+  letI := Fintype.ofFinite R
+  haveI : Nonempty (D → R) := ⟨fun _ => Classical.arbitrary R⟩
+  refine evalDist_ext fun h => ?_
+  rw [probOutput_uniformSample (D → R) h, probOutput_bind_eq_sum_fintype]
+  -- For each fixed `u`, count the tables `g` whose `t`-update equals `h`.
+  have hinner : ∀ u : R,
+      Pr[= h | (do let g ← $ᵗ (D → R); pure (Function.update g t u))]
+        = (if u = h t then
+            (Fintype.card R : ℝ≥0∞) * (Fintype.card (D → R) : ℝ≥0∞)⁻¹ else 0) := by
+    intro u
+    rw [bind_pure_comp, probOutput_map_eq_sum_fintype_ite]
+    simp only [probOutput_uniformSample (D → R)]
+    rw [← Finset.sum_filter, Finset.sum_const, nsmul_eq_mul]
+    -- The matching tables are exactly `Function.update h t r` for `r : R`.
+    have hcard :
+        ((Finset.univ.filter fun g : D → R => h = Function.update g t u).card : ℝ≥0∞)
+          = if u = h t then (Fintype.card R : ℝ≥0∞) else 0 := by
+      by_cases hu : u = h t
+      · have hset : (Finset.univ.filter fun g : D → R => h = Function.update g t u)
+            = Finset.univ.image (fun r : R => Function.update h t r) := by
+          ext g
+          simp only [Finset.mem_filter, Finset.mem_univ, true_and, Finset.mem_image]
+          constructor
+          · intro hg
+            exact ⟨g t, by subst hg; simp⟩
+          · rintro ⟨r, rfl⟩
+            subst hu; simp
+        rw [hset, Finset.card_image_of_injective _
+          (fun r₁ r₂ hr => by simpa using congrFun hr t), Finset.card_univ, if_pos hu]
+      · rw [if_neg hu, Nat.cast_eq_zero, Finset.card_eq_zero, Finset.filter_eq_empty_iff]
+        rintro g - rfl
+        simp at hu
+    rw [hcard, ite_mul, zero_mul]
+  simp_rw [hinner, mul_ite, mul_zero]
+  rw [Finset.sum_ite_eq' Finset.univ (h t), if_pos (Finset.mem_univ _), probOutput_uniformSample R,
+      ← mul_assoc, ENNReal.inv_mul_cancel (by simp [Fintype.card_ne_zero])
+        (ENNReal.natCast_ne_top _), one_mul]
+
+/-- **The first coordinate of a uniform pair is uniform.**
+
+Mapping the uniform distribution on `α × β` through `Prod.fst` yields the uniform distribution on
+`α`: the `Prod.fst`-marginal of a uniform (product) distribution is uniform. -/
+lemma evalDist_map_fst_uniformSample_prod {α β : Type} [Finite α]
+    [Finite β] [Nonempty β] [SampleableType α] [SampleableType β] [SampleableType (α × β)] :
+    𝒟[Prod.fst <$> ($ᵗ (α × β))] = 𝒟[$ᵗ α] := by
+  classical
+  letI := Fintype.ofFinite α
+  letI := Fintype.ofFinite β
+  haveI : DecidableEq α := Classical.decEq α
+  refine evalDist_ext fun x => ?_
+  rw [probOutput_uniformSample α x, probOutput_map_eq_sum_fintype_ite]
+  simp only [probOutput_uniformSample (α × β)]
+  rw [← Finset.sum_filter, Finset.sum_const, nsmul_eq_mul]
+  have hset : (Finset.univ.filter fun p : α × β => x = p.1)
+      = ({x} : Finset α) ×ˢ (Finset.univ : Finset β) := by
+    ext p
+    simp only [Finset.mem_filter, Finset.mem_univ, true_and, Finset.mem_product,
+      Finset.mem_singleton, and_true, eq_comm]
+  rw [hset, Finset.card_product, Finset.card_singleton, one_mul, Finset.card_univ,
+    Fintype.card_prod, Nat.cast_mul,
+    ENNReal.mul_inv (Or.inr (ENNReal.natCast_ne_top _)) (Or.inl (ENNReal.natCast_ne_top _)),
+    mul_comm, mul_assoc, ENNReal.inv_mul_cancel (Nat.cast_ne_zero.mpr Fintype.card_ne_zero)
+      (ENNReal.natCast_ne_top _), mul_one]
+
+/-- **Restricting a uniform function table to a subdomain along an injection is uniform.**
+
+For an injection `e : A → B` between finite types, drawing a uniform table `g : B → R` and
+restricting it along `e` (i.e. `g ∘ e`) yields the uniform distribution on `A → R`.
+
+This is the marginalization of the uniform (product) distribution on `B → R` onto the block of
+coordinates indexed by `Set.range e`: those coordinates are jointly uniform and independent of
+the rest, and `e` reindexes the block by `A`. It underlies eager-sampling reformulations that
+project a fine-grained random-oracle table onto a coarser one. -/
+lemma evalDist_uniformSample_map_comp_injective
+    {A B R : Type} [Finite A] [Finite B] [Finite R]
+    [Nonempty R] [SampleableType R] [SampleableType (A → R)] [SampleableType (B → R)]
+    {e : A → B} (he : Function.Injective e) :
+    𝒟[do let g ← $ᵗ (B → R); pure (g ∘ e)] = 𝒟[$ᵗ (A → R)] := by
+  classical
+  letI := Fintype.ofFinite A
+  letI := Fintype.ofFinite B
+  letI := Fintype.ofFinite R
+  letI : Inhabited R := Classical.inhabited_of_nonempty inferInstance
+  set C := {b : B // b ∉ Set.range e}
+  -- A table `g : B → R` is determined by its restriction `g ∘ e` along `e` and its values off
+  -- `range e`, splitting `B → R` as the product `(A → R) × (C → R)` via the reindexing of `B` by
+  -- `A ⊕ C` along `e` and the complement inclusion.
+  set φ : (B → R) ≃ (A → R) × (C → R) :=
+    (Equiv.arrowCongr ((Equiv.Set.sumCompl (Set.range e)).symm.trans
+      ((Equiv.ofInjective e he).symm.sumCongr (Equiv.refl C))) (Equiv.refl R)).trans
+      (Equiv.sumArrowEquivProdArrow _ _ _)
+  have hφ1 : ∀ g : B → R, (φ g).1 = g ∘ e := fun g => funext fun a => by
+    simp [φ, Equiv.sumArrowEquivProdArrow, Equiv.ofInjective]
+  calc 𝒟[do let g ← $ᵗ (B → R); pure (g ∘ e)]
+      = 𝒟[Prod.fst <$> (φ <$> ($ᵗ (B → R)))] := by
+        simp only [bind_pure_comp, Functor.map_map, Function.comp_def, hφ1]
+    _ = 𝒟[Prod.fst <$> ($ᵗ ((A → R) × (C → R)))] := by
+        rw [evalDist_map, evalDist_ext fun p =>
+          probOutput_map_bijective_uniform_cross (α := B → R) φ φ.bijective p, ← evalDist_map]
+    _ = 𝒟[$ᵗ (A → R)] := evalDist_map_fst_uniformSample_prod
+
+/-- Patch a uniform function table at every point of a list `l`, drawing one fresh uniform value
+per list entry. With `l = []` the table is returned unchanged; with `l = d :: ds` the tail is
+patched first and the head point `d` is then overwritten with a fresh uniform draw.
+
+This is the iterated form of `Function.update` used by `evalDist_uniformSample_patchList`: the
+outermost update is at the head, so the list is consumed head-first. -/
+def patchTable {D R : Type} [DecidableEq D] [SampleableType R] :
+    List D → (D → R) → ProbComp (D → R)
+  | [], g => pure g
+  | d :: ds, g => do
+      let g' ← patchTable ds g
+      let u ← $ᵗ R
+      pure (Function.update g' d u)
+
+@[simp] lemma patchTable_nil {D R : Type} [DecidableEq D] [SampleableType R] (g : D → R) :
+    patchTable [] g = pure g := rfl
+
+lemma patchTable_cons {D R : Type} [DecidableEq D] [SampleableType R]
+    (d : D) (ds : List D) (g : D → R) :
+    patchTable (d :: ds) g =
+      (do let g' ← patchTable ds g; let u ← $ᵗ R; pure (Function.update g' d u)) := rfl
+
+/-- **Patching a uniform function table at finitely many points preserves uniformity.**
+
+Drawing a uniform table `g : D → R` and then `patchTable l g` — overwriting `g` at every point of
+`l` with independent fresh uniform draws — yields the same distribution as drawing the table
+directly. The points of `l` need not be distinct: each `Function.update` is the outermost
+operation of its recursion step, so `evalDist_uniformSample_bind_update` applies regardless of
+overlap. This is the marginalization step behind trace-conditioned eager-table reformulations,
+where the patched points are determined only after the table is sampled. -/
+lemma evalDist_uniformSample_patchList
+    {D R : Type} [Finite D] [DecidableEq D] [Finite R] [Nonempty R]
+    [SampleableType R] [SampleableType (D → R)] (l : List D) :
+    𝒟[do let g ← $ᵗ (D → R); patchTable l g] = 𝒟[$ᵗ (D → R)] := by
+  classical
+  induction l with
+  | nil => simp
+  | cons d ds ih =>
+    refine evalDist_ext fun h => ?_
+    set blk : ProbComp (D → R) := (do let g ← $ᵗ (D → R); patchTable ds g) with hblk
+    have hlhs :
+        Pr[= h | do let g ← $ᵗ (D → R); patchTable (d :: ds) g]
+          = Pr[= h | blk >>= fun g' => $ᵗ R >>= fun u => pure (Function.update g' d u)] :=
+      OracleComp.probOutput_congr rfl (by simp only [patchTable_cons, bind_assoc, hblk])
+    rw [hlhs, probOutput_bind_eq_tsum]
+    simp_rw [fun g' : D → R => OracleComp.probOutput_congr rfl ih (x := g')]
+    rw [← probOutput_bind_eq_tsum, probOutput_bind_bind_swap ($ᵗ (D → R)) ($ᵗ R)
+      (fun g' u => pure (Function.update g' d u))]
+    exact OracleComp.probOutput_congr rfl (evalDist_uniformSample_bind_update d)
+
+end Marginalization
 
 -- TODO: generalize this lemma
 /--
@@ -503,8 +620,7 @@ lemma probOutput_bind_uniformBool {α : Type}
     (f : Bool → ProbComp α) (x : α) :
     Pr[= x | (do let b ← $ᵗ Bool; f b)] =
       (Pr[= x | f true] + Pr[= x | f false]) / 2 := by
-  rw [probOutput_bind_eq_tsum]
-  rw [tsum_fintype (L := .unconditional _), Fintype.sum_bool]
+  rw [probOutput_bind_eq_tsum, tsum_fintype (L := .unconditional _), Fintype.sum_bool]
   simp only [probOutput_uniformSample, Fintype.card_bool, Nat.cast_ofNat, add_comm, div_eq_mul_inv]
   rw [← left_distrib, mul_comm]
 
@@ -516,49 +632,19 @@ lemma probOutput_uniformBool_branch_toReal_sub_half (real rand : ProbComp Bool) 
       let z ← if b then real else rand
       pure (b == z)]).toReal - 1 / 2 =
     ((Pr[= true | real]).toReal - (Pr[= true | rand]).toReal) / 2 := by
-  have hgameRepr :
-      Pr[= true | do
-        let b ← ($ᵗ Bool)
-        let z ← if b then real else rand
-        pure (b == z)] =
-      Pr[= true | do
-        let b ← ($ᵗ Bool)
-        if b then (BEq.beq true <$> real) else (BEq.beq false <$> rand)] := by
-    refine probOutput_bind_congr' ($ᵗ Bool) true ?_
-    intro b
-    cases b
-    · have hbeqFalse : (BEq.beq false : Bool → Bool) = Bool.not := by
-        funext t
-        cases t <;> rfl
-      simp [hbeqFalse]
-    · have hbeqTrue : (BEq.beq true : Bool → Bool) = id := by
-        funext t
-        cases t <;> rfl
-      simp [hbeqTrue]
-  have hmix :
-      Pr[= true | do
-        let b ← ($ᵗ Bool)
-        if b then (BEq.beq true <$> real) else (BEq.beq false <$> rand)] =
-      (Pr[= true | (BEq.beq true <$> real)] + Pr[= true | (BEq.beq false <$> rand)]) / 2 :=
-    probOutput_bind_uniformBool
-      (f := fun b => if b then (BEq.beq true <$> real) else (BEq.beq false <$> rand))
-      (x := true)
   have hformula : Pr[= true | do
       let b ← ($ᵗ Bool)
       let z ← if b then real else rand
-      pure (b == z)] =
-    (Pr[= true | real] + Pr[= false | rand]) / 2 := by
-    rw [hgameRepr, hmix,
-      show (BEq.beq true : Bool → Bool) = id from by ext b; cases b <;> rfl, id_map,
-      show (BEq.beq false : Bool → Bool) = (! ·) from by ext b; cases b <;> rfl,
-      probOutput_not_map]
+      pure (b == z)] = (Pr[= true | real] + Pr[= false | rand]) / 2 := by
+    rw [probOutput_bind_uniformBool]
+    simp
   have hfalseAsSub : Pr[= false | rand] = 1 - Pr[= true | rand] := by
-    have hsum : Pr[= true | rand] + Pr[= false | rand] = 1 := by simp
-    rw [← hsum, ENNReal.add_sub_cancel_left probOutput_ne_top]
+    rw [← (by simp : Pr[= true | rand] + Pr[= false | rand] = 1),
+      ENNReal.add_sub_cancel_left probOutput_ne_top]
   rw [hformula, ENNReal.toReal_div,
     ENNReal.toReal_add probOutput_ne_top probOutput_ne_top,
     hfalseAsSub, ENNReal.toReal_sub_of_le probOutput_le_one ENNReal.one_ne_top]
-  simp [ENNReal.toReal_ofNat]
+  simp only [ENNReal.toReal_one, ENNReal.toReal_ofNat]
   ring
 
 /-- If the distribution of `f b` is independent of `b`, then guessing a uniformly random
@@ -568,20 +654,15 @@ lemma probOutput_decide_eq_uniformBool_half
     (f : Bool → ProbComp Bool)
     (heq : 𝒟[f true] = 𝒟[f false]) :
     Pr[= true | do let b ← $ᵗ Bool; let b' ← f b; return decide (b = b')] = 1 / 2 := by
-  have h := evalDist_ext_iff.mp heq
   rw [probOutput_bind_eq_tsum]
   simp only [tsum_fintype (L := .unconditional _), Fintype.sum_bool,
     probOutput_uniformSample, Fintype.card_bool]
-  have htrue : Pr[= true | f true >>= fun b' => pure (decide (true = b'))] =
-      Pr[= true | f true] := by
-    rw [probOutput_bind_eq_tsum]; simp
-  have hfalse : Pr[= true | f false >>= fun b' => pure (decide (false = b'))] =
-      Pr[= false | f false] := by
-    rw [probOutput_bind_eq_tsum]; simp
-  have hsum : Pr[= true | f false] + Pr[= false | f false] = 1 := by
-    have := HasEvalPMF.sum_probOutput_eq_one (f false)
-    rwa [Fintype.sum_bool] at this
-  rw [htrue, hfalse, h true, ← mul_add, hsum, mul_one]
+  rw [show Pr[= true | f true >>= fun b' => pure (decide (true = b'))] = Pr[= true | f true] by
+        simp,
+    show Pr[= true | f false >>= fun b' => pure (decide (false = b'))] = Pr[= false | f false] by
+        simp,
+    evalDist_ext_iff.mp heq true, ← mul_add,
+    show Pr[= true | f false] + Pr[= false | f false] = 1 by simp, mul_one]
   simp [one_div]
 
 section UniformSampleImpl
@@ -600,7 +681,7 @@ namespace uniformSampleImpl
 variable [∀ i, SampleableType (spec.Range i)]
 
 @[simp]
-lemma evalDist_simulateQ [spec.Fintype] [spec.Inhabited] {α : Type}
+lemma evalDist_simulateQ [IsUniformSpec spec] {α : Type}
     (oa : OracleComp spec α) :
     𝒟[simulateQ uniformSampleImpl oa] = 𝒟[oa] := by
   induction oa using OracleComp.inductionOn with
@@ -608,19 +689,19 @@ lemma evalDist_simulateQ [spec.Fintype] [spec.Inhabited] {α : Type}
   | query_bind t mx h => simp [h, uniformSampleImpl]
 
 @[simp]
-lemma probOutput_simulateQ [spec.Fintype] [spec.Inhabited] {α : Type}
+lemma probOutput_simulateQ [IsUniformSpec spec] {α : Type}
     (oa : OracleComp spec α) (x : α) :
     Pr[= x | simulateQ uniformSampleImpl oa] = Pr[= x | oa] :=
   congrFun (congrArg DFunLike.coe (evalDist_simulateQ oa)) x
 
 @[simp]
-lemma probEvent_simulateQ [spec.Fintype] [spec.Inhabited] {α : Type}
+lemma probEvent_simulateQ [IsUniformSpec spec] {α : Type}
     (oa : OracleComp spec α) (p : α → Prop) :
     Pr[ p | simulateQ uniformSampleImpl oa] = Pr[ p | oa] := by
   simp only [probEvent_eq_tsum_indicator, probOutput_simulateQ]
 
 @[simp]
-lemma support_simulateQ [spec.Fintype] [spec.Inhabited] {α : Type}
+lemma support_simulateQ [IsUniformSpec spec] {α : Type}
     (oa : OracleComp spec α) :
     support (simulateQ uniformSampleImpl oa) = support oa := by
   induction oa using OracleComp.inductionOn with
@@ -628,7 +709,7 @@ lemma support_simulateQ [spec.Fintype] [spec.Inhabited] {α : Type}
   | query_bind t mx h => simp [h, uniformSampleImpl]
 
 @[simp]
-lemma finSupport_simulateQ [spec.Fintype] [spec.Inhabited] {α : Type}
+lemma finSupport_simulateQ [IsUniformSpec spec] {α : Type}
     [DecidableEq α] (oa : OracleComp spec α) :
     finSupport (simulateQ uniformSampleImpl oa) = finSupport oa := by
   simp [finSupport_eq_iff_support_eq_coe]

@@ -3,9 +3,9 @@ Copyright (c) 2024 Devon Tuma. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Devon Tuma, Quang Dao
 -/
-import VCVio.OracleComp.SimSemantics.SimulateQ
 import VCVio.OracleComp.Constructions.SampleableType
 import VCVio.OracleComp.EvalDist
+import VCVio.OracleComp.SimSemantics.SimulateQ
 
 /-!
 # Basic Constructions of Simulation Oracles
@@ -68,9 +68,7 @@ lemma apply_compose (so' : QueryImpl spec' m) (so : QueryImpl spec (OracleComp s
 lemma simulateQ_compose [LawfulMonad m] (so' : QueryImpl spec' m)
     (so : QueryImpl spec (OracleComp spec'))
     (oa : OracleComp spec α) : simulateQ (so' ∘ₛ so) oa = simulateQ so' (simulateQ so oa) := by
-  induction oa using OracleComp.inductionOn with
-  | pure x => simp
-  | query_bind t mx h => simp [h]
+  induction oa using OracleComp.inductionOn <;> simp_all
 
 @[simp]
 lemma compose_id' [LawfulMonad m] (so : QueryImpl spec m) :
@@ -155,9 +153,10 @@ lemma proj_simulateQ_preInsert [Monad m] [LawfulMonad m] [LawfulMonad n]
       exact bind_congr ih
 
 /-- A `preInsert` instrumentation preserves failure probability for any base monad with
-`HasEvalSPMF`, given the projection bundle and its compatibility with failure probabilities. -/
+`[MonadLiftT m SPMF]`, given the projection bundle and its compatibility with failure
+probabilities. -/
 lemma probFailure_proj_simulateQ_preInsert [Monad m]
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
     (so : QueryImpl spec m) (nx : spec.Domain → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -170,7 +169,7 @@ lemma probFailure_proj_simulateQ_preInsert [Monad m]
 
 /-- `NeverFail` biconditional companion of `probFailure_proj_simulateQ_preInsert`. -/
 lemma neverFail_proj_simulateQ_preInsert_iff [Monad m]
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
     (so : QueryImpl spec m) (nx : spec.Domain → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -195,7 +194,7 @@ lemma simulateQ_preInsert_const_pure [Monad m]
 /-! #### `evalDist` / `probOutput` / `support` bridges for `preInsert` -/
 
 lemma evalDist_proj_simulateQ_preInsert [Monad m]
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
     (so : QueryImpl spec m) (nx : spec.Domain → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -207,7 +206,7 @@ lemma evalDist_proj_simulateQ_preInsert [Monad m]
   rw [proj_simulateQ_preInsert so nx proj hproj_pure hproj_bind hproj_apply]
 
 lemma probOutput_proj_simulateQ_preInsert [Monad m]
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
     (so : QueryImpl spec m) (nx : spec.Domain → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -219,7 +218,7 @@ lemma probOutput_proj_simulateQ_preInsert [Monad m]
   rw [proj_simulateQ_preInsert so nx proj hproj_pure hproj_bind hproj_apply]
 
 lemma support_proj_simulateQ_preInsert [Monad m]
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SetM]
     (so : QueryImpl spec m) (nx : spec.Domain → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -231,7 +230,7 @@ lemma support_proj_simulateQ_preInsert [Monad m]
   rw [proj_simulateQ_preInsert so nx proj hproj_pure hproj_bind hproj_apply]
 
 lemma finSupport_proj_simulateQ_preInsert [Monad m]
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m] [HasEvalFinset m] [DecidableEq β]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SetM] [HasEvalFinset m] [DecidableEq β]
     (so : QueryImpl spec m) (nx : spec.Domain → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -325,9 +324,10 @@ lemma proj_simulateQ_postInsert [LawfulMonad m] [LawfulMonad n]
       exact bind_congr ih
 
 /-- A `postInsert` instrumentation preserves failure probability for any base monad with
-`HasEvalSPMF`, given the projection bundle and its compatibility with failure probabilities. -/
+`[MonadLiftT m SPMF]`, given the projection bundle and its compatibility with failure
+probabilities. -/
 lemma probFailure_proj_simulateQ_postInsert
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
     (so : QueryImpl spec m) (nx : (t : spec.Domain) → spec.Range t → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -340,7 +340,7 @@ lemma probFailure_proj_simulateQ_postInsert
 
 /-- `NeverFail` biconditional companion of `probFailure_proj_simulateQ_postInsert`. -/
 lemma neverFail_proj_simulateQ_postInsert_iff
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
     (so : QueryImpl spec m) (nx : (t : spec.Domain) → spec.Range t → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -358,16 +358,13 @@ lemma simulateQ_postInsert_const_pure
     [LawfulMonad m] [LawfulMonad n] [LawfulMonadLiftT m n]
     (so : QueryImpl spec m) (x : α) (oa : OracleComp spec β) :
     simulateQ (so.postInsert (fun _ _ => (pure x : n α))) oa = liftM (simulateQ so oa) := by
-  have h : so.postInsert (fun _ _ => (pure x : n α)) = so.liftTarget n := by
-    funext t
-    change (do let u ← liftM (so t); let _ ← (pure x : n α); return u) = liftM (so t)
-    simp [bind_pure]
+  have h : so.postInsert (fun _ _ => (pure x : n α)) = so.liftTarget n := by funext t; simp
   rw [h, simulateQ_liftTarget]
 
 /-! #### `evalDist` / `probOutput` / `support` bridges for `postInsert` -/
 
 lemma evalDist_proj_simulateQ_postInsert
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
     (so : QueryImpl spec m) (nx : (t : spec.Domain) → spec.Range t → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -379,7 +376,7 @@ lemma evalDist_proj_simulateQ_postInsert
   rw [proj_simulateQ_postInsert so nx proj hproj_pure hproj_bind hproj_apply]
 
 lemma probOutput_proj_simulateQ_postInsert
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SPMF] [LawfulMonadLiftT m SPMF]
     (so : QueryImpl spec m) (nx : (t : spec.Domain) → spec.Range t → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -391,7 +388,7 @@ lemma probOutput_proj_simulateQ_postInsert
   rw [proj_simulateQ_postInsert so nx proj hproj_pure hproj_bind hproj_apply]
 
 lemma support_proj_simulateQ_postInsert
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SetM]
     (so : QueryImpl spec m) (nx : (t : spec.Domain) → spec.Range t → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
@@ -403,7 +400,7 @@ lemma support_proj_simulateQ_postInsert
   rw [proj_simulateQ_postInsert so nx proj hproj_pure hproj_bind hproj_apply]
 
 lemma finSupport_proj_simulateQ_postInsert
-    [LawfulMonad m] [LawfulMonad n] [HasEvalSPMF m] [HasEvalFinset m] [DecidableEq β]
+    [LawfulMonad m] [LawfulMonad n] [MonadLiftT m SetM] [HasEvalFinset m] [DecidableEq β]
     (so : QueryImpl spec m) (nx : (t : spec.Domain) → spec.Range t → n α)
     (proj : ∀ {γ : Type u}, n γ → m γ)
     (hproj_pure : ∀ {γ : Type u} (x : γ), proj (pure x : n γ) = pure x)
