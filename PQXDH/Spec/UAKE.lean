@@ -11,6 +11,46 @@ import VCVio.CryptoFoundations.HardnessAssumptions.DiffieHellman
 import VCVio.CryptoFoundations.PRF
 import VCVio.OracleComp.QueryTracking.QueryBound
 
+/-!
+# PQXDH modeled as a DF'17-style UAKE
+
+Model simplifications
+* **Unilateral authentication:** UAKE is unilaterally authenticated. In
+  principle, it should be possible to model a protocol in both directions to
+  show multilateral authentication. However, we model security only for the
+  "Bob authenticates to Alice" direction. This is because UAKE security
+  requires explicit authentication, and Alice's authentication to Bob is
+  implicit via the adversary being unable to compute the DH output, rather than
+  relying on Alice's signature (she signs nothing).
+* **SUF-CMA signature (not EUF-CMA):** Since UAKE is a
+  transcript-matching-style definition, our security theorems are subject to
+  harmless but definition-breaking "no-match" attacks on the signature scheme.
+  See Li & Schäge, "No-Match Attacks and Robust Partnering Definitions" (ACM CCS
+  2017) for a reference on attacks of this kind.
+* **Bob's extra message:** In the PQXDH spec, the exchange ends at Alice's
+  first message to Bob, but UAKE requires that the last message be sent by the
+  keyed party (Bob). Therefore we add an extra message from Bob under the AEAD
+  at the end of the protocol. This would represent the second message in the
+  conversation between Alice and Bob.
+
+Protocol questions:
+* **Key reuse between DH and SignatureAlg:** We assume that Bob's identity key
+  contains separate keys for DH exchange and signing. This matches the "no key
+  reuse" simplification mentioned in Sec. 4 of the spec that other formal
+  analyses required.
+* **Separate AEAD key:** The PQXDH spec uses the same KDF output for both
+  Alice's AEAD key and the final result of the key exchange, but this seems to
+  preclude key indistinguishability. This is because the adversary can try
+  using the candidate key to decrypt Alice's message. This will fail for a
+  random key (with high likelihood) but succeed for the real key, thus
+  distinguishing them. The spec allows KA to be SK or PRF(SK, ·), but both
+  variants break key indistinguishability. This could be easily fixed by using
+  the KDF output as the key to a PRF that generates **both** SK and KA, but
+  the spec **only describes a PRF-derived KA**, which is insufficient. We
+  sidestep this and model the final key and Alice's AEAD (and Bob's AEAD key;
+  see bullet 3 of "Model simplifications") as separate KDF outputs.
+-/
+
 open OracleSpec OracleComp AKE
 open scoped ENNReal
 
@@ -2613,12 +2653,16 @@ theorem uakeInitiator_secure_pq
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εkem εaead εkdf : ℝ)
     (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    /- DEVIATION FROM SPEC: We require the signature scheme to be SUF-CMA, not
+      just EUF-CMA. This is required to avoid (harmless) LS'17-style
+      "no-match" attacks because we use a transcript-matching AKE definition. -/
     (hsig : ∀ B : P.sig.unforgeableAdv,
       (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hkem : ∀ B : P.pqkem.IND_CCA_Adversary,
       P.pqkem.IND_CCA_Advantage ProbCompRuntime.probComp B ≤ εkem)
     (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
       AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead)
+    /- MODEL SIMPLIFICATION: We model the KDF as a PRF keyed by the KEM secret. -/
     (hkdf : ∀ D : PRFScheme.PRFAdversary (G × G × G × Option G) (K × K × K),
       (kdfPRF P).prfAdvantage D ≤ εkdf) :
     UAKE.advantage A ≤ εsig + q * (εkem + εaead + εkdf) := by
@@ -2649,12 +2693,18 @@ theorem uakeInitiator_secure_dh
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εddh εaead εkdf : ℝ)
     (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    /- DEVIATION FROM SPEC: We require the signature scheme to be SUF-CMA, not
+      just EUF-CMA. This is required to avoid (harmless) LS'17-style
+      "no-match" attacks because we use a transcript-matching AKE definition. -/
     (hsig : ∀ B : P.sig.unforgeableAdv,
       (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hddh : ∀ D : DiffieHellman.DDHAdversary F G,
       DiffieHellman.ddhDistAdvantage P.gen D ≤ εddh)
     (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
       AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead)
+    /- MODEL SIMPLIFICATION: We model the KDF as a PRF. Since we key our KDF
+      using DH group elements, we must also assume that the KDF is secure when
+      keyed with one of these, rather than a random bit string. -/
     (hkdf : ∀ D : PRFScheme.PRFAdversary (G × G × Option G × SS) (K × K × K),
       (kdfPRFDH P).prfAdvantage D ≤ εkdf) :
     UAKE.advantage A ≤ εsig + q * (εddh + εaead + εkdf) := by
