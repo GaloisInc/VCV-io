@@ -455,7 +455,7 @@ theorem uakeInitiator_perfectlyCorrect
     (haead : AEAD.PerfectlyCorrect P.aead) :
     UAKE.PerfectlyCorrect (uakeInitiator P msg hasOPK) := by
   refine probOutput_eq_one_of_support_subset_singleton ?_ ?_
-  · exact HasEvalPMF.probFailure_eq_zero _
+  · exact probFailure_of_liftM_PMF _
   intro b hb
   simp only [UAKE.CorrectExp, uakeInitiator, mem_support_bind_iff, support_pure,
     Set.mem_singleton_iff, Prod.exists] at hb
@@ -479,7 +479,7 @@ theorem uakeRecipient_perfectlyCorrect
     (haead : AEAD.PerfectlyCorrect P.aead) :
     UAKE.PerfectlyCorrect (uakeRecipient P msg hasOPK) := by
   refine probOutput_eq_one_of_support_subset_singleton ?_ ?_
-  · exact HasEvalPMF.probFailure_eq_zero _
+  · exact probFailure_of_liftM_PMF _
   intro b hb
   simp only [UAKE.CorrectExp, uakeRecipient, mem_support_bind_iff, support_pure,
     Set.mem_singleton_iff, Prod.exists] at hb
@@ -512,7 +512,7 @@ private lemma finalize_true_add_false_eq_one {K UK TK W : Type}
   obtain ⟨aSt, env, tk⟩ := st
   simp only [UAKE.finalize, hKb, ite_self]
   rw [probOutput_bind_eq_tsum, probOutput_bind_eq_tsum, ← ENNReal.tsum_add]
-  rw [← HasEvalPMF.tsum_probOutput_eq_one
+  rw [← tsum_probOutput_of_liftM_PMF
     ((simulateQ (withUnif (UAKE.oracleImpl proto tk)) (A.post aSt K1)).run env)]
   refine tsum_congr fun x => ?_
   have hsum : Pr[= true | if UAKE.fullPingPong x.2 cr = true then ($ᵗ Bool)
@@ -549,7 +549,7 @@ private lemma probOutput_bind_if_true_uniformBool {α : Type} (m : ProbComp α) 
       1 / 2 + Pr[= true | do let x ← m; pure (c x)] / 2 := by
   rw [probOutput_bind_eq_tsum, probOutput_bind_eq_tsum]
   conv_rhs => rw [show (1 : ℝ≥0∞) / 2 = (∑' x, Pr[= x | m]) / 2 from by
-    rw [HasEvalPMF.tsum_probOutput_eq_one]]
+    rw [tsum_probOutput_of_liftM_PMF]]
   simp only [div_eq_mul_inv]
   rw [← ENNReal.tsum_mul_right, ← ENNReal.tsum_mul_right, ← ENNReal.tsum_add]
   refine tsum_congr fun x => ?_
@@ -1576,15 +1576,6 @@ def sigForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
 
 end SignatureReduction
 
-private lemma probOutput_bind_bind_swap {α β γ : Type}
-    (ma : ProbComp α) (mb : ProbComp β) (f : α → β → ProbComp γ) (z : γ) :
-    Pr[= z | do let a ← ma; let b ← mb; f a b]
-      = Pr[= z | do let b ← mb; let a ← ma; f a b] := by
-  simp only [probOutput_bind_eq_tsum, ← ENNReal.tsum_mul_left]
-  rw [ENNReal.tsum_comm]
-  refine tsum_congr fun b => tsum_congr fun a => ?_
-  ring
-
 private lemma probOutput_true_and_partition {α : Type} (X : ProbComp α) (b c : α → Bool) :
     Pr[= true | do let x ← X; pure (b x)]
       = Pr[= true | do let x ← X; pure (b x && c x)]
@@ -1815,7 +1806,8 @@ private lemma challengeBundlesVerify_withUnif_query [Field F] [AddCommGroup G] [
   | inl u =>
     have hch : renv.2 = env0 := by
       simp only [withUnif, QueryImpl.add_apply_inl, QueryImpl.liftTarget_apply,
-        HasQuery.toQueryImpl_apply, StateT.run_monadLift] at hmem
+        HasQuery.toQueryImpl_apply] at hmem
+      erw [StateT.run_liftM] at hmem
       obtain ⟨a, -, hr⟩ := (mem_support_bind_iff _ _ _).1 hmem
       obtain rfl := (mem_support_pure_iff' _ _).1 hr
       rfl
@@ -2075,7 +2067,8 @@ private lemma withUnif_challengeDone_true [Field F] [AddCommGroup G] [Module F G
   cases q with
   | inl u =>
     simp only [withUnif, QueryImpl.add_apply_inl, QueryImpl.liftTarget_apply,
-      HasQuery.toQueryImpl_apply, StateT.run_monadLift] at hmem
+      HasQuery.toQueryImpl_apply] at hmem
+    erw [StateT.run_liftM] at hmem
     obtain ⟨a, -, hr⟩ := (mem_support_bind_iff _ _ _).1 hmem
     obtain rfl := (mem_support_pure_iff' _ _).1 hr
     exact hdone
@@ -2291,7 +2284,7 @@ private lemma probOutput_guess_half {E : Type} (p : ProbComp (Bool × E)) (cond 
       + Pr[= true | do
         let x ← p; if cond x.2 then ($ᵗ Bool : ProbComp Bool) else pure (x.1 == false)] = 1 := by
     simp only [probOutput_bind_eq_tsum]
-    rw [← ENNReal.tsum_add, ← HasEvalPMF.tsum_probOutput_eq_one (mx := p)]
+    rw [← ENNReal.tsum_add, ← tsum_probOutput_of_liftM_PMF (mx := p)]
     refine tsum_congr fun x => ?_
     rw [← mul_add]
     conv_rhs => rw [← mul_one (Pr[= x | p])]
@@ -2475,16 +2468,6 @@ private lemma exp_eq_half_add_authBreak [Field F] [AddCommGroup G] [Module F G] 
     rintro ⟨st, env⟩
     dsimp only
     exact exp_per_env P msg hasOPK A st env tk
-
-private lemma two_mul_probOutput_bind_uniformBool {γ : Type} (mc : ProbComp γ)
-    (g : γ → Bool → ProbComp Bool) :
-    2 * Pr[= true | do let x ← mc; let b ← $ᵗ Bool; g x b]
-      = Pr[= true | do let x ← mc; g x true] + Pr[= true | do let x ← mc; g x false] := by
-  rw [probOutput_bind_eq_tsum mc, probOutput_bind_eq_tsum mc, probOutput_bind_eq_tsum mc,
-    ← ENNReal.tsum_mul_left, ← ENNReal.tsum_add]
-  refine tsum_congr fun x => ?_
-  rw [probOutput_bind_uniformBool, mul_comm (2 : ℝ≥0∞), mul_assoc,
-    ENNReal.div_mul_cancel (by norm_num) (by norm_num), mul_add]
 
 private lemma probOutput_reorder4 {α β γ δ : Type}
     (ma : ProbComp α) (mb : ProbComp β) (mc : ProbComp γ) (md : ProbComp δ)
