@@ -39,7 +39,7 @@ def genOPK [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     (gen : G) (hasOPK : Bool) : ProbComp (Option (G × F)) :=
   if hasOPK then some <$> dhKeygen gen else pure none
 
-structure InitiatorParameters (F G SS SPK Msg K : Type) where
+structure InitiatorParameters (F G SPK Msg : Type) where
   ikA : G × F
   /- We include Bob's identity public key here in order to pin Bob's
     identity to Alice. This models the out-of-band key fingerprinting from Sec.
@@ -52,13 +52,13 @@ structure InitiatorParameters (F G SS SPK Msg K : Type) where
   sigpkB : SPK
   msg : Msg
 
-structure RecipientIdentity (F G SS SPK SSK S K : Type) where
+structure RecipientIdentity (F G SPK SSK S : Type) where
   ikB : G × F
   sigkB : SPK × SSK
   spkB : G × F
   spkSigB : S
 
-structure RecipientParameters (F G SS PQPK PQSK SPK SSK S K : Type) where
+structure RecipientParameters (F G PQPK PQSK SPK SSK S : Type) where
   ikB : G × F
   sigkB : SPK × SSK
   spkB : G × F
@@ -93,8 +93,8 @@ structure SessionContext (G PQPK Msg K : Type) where
 
 def setup [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) :
-    ProbComp (InitiatorParameters F G SS SPK Msg K ×
-      RecipientIdentity F G SS SPK SSK S K) := do
+    ProbComp (InitiatorParameters F G SPK Msg ×
+      RecipientIdentity F G SPK SSK S) := do
   let ikA ← dhKeygen P.gen
   let ikB ← dhKeygen P.gen
   let sigkB ← P.sig.keygen
@@ -104,7 +104,7 @@ def setup [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     { ikB := ikB, sigkB := sigkB, spkB := spkB, spkSigB := spkSigB })
 
 def publish (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
-    (p : RecipientParameters F G SS PQPK PQSK SPK SSK S K) :
+    (p : RecipientParameters F G PQPK PQSK SPK SSK S) :
     ProbComp (PreKeyBundle G PQPK S IdC IdK) := do
   let pqpkSigB ← P.sig.sign p.sigkB.1 p.sigkB.2 (EncodeKEM p.pqpkB.1)
   return { ikB := p.ikB.1
@@ -116,7 +116,7 @@ def publish (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
 
 def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [DecidableEq G]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
-    (p : InitiatorParameters F G SS SPK Msg K)
+    (p : InitiatorParameters F G SPK Msg)
     (bundle : PreKeyBundle G PQPK S IdC IdK) :
     ProbComp (Option (InitialMessage G CT C IdC IdK × SessionContext G PQPK Msg K)) := do
   if bundle.ikB ≠ p.ikB then return none
@@ -150,7 +150,7 @@ def initiate [Field F] [AddCommGroup G] [Module F G] [SampleableType F] [Decidab
 
 def accept [Field F] [AddCommGroup G] [Module F G] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
-    (p : RecipientParameters F G SS PQPK PQSK SPK SSK S K)
+    (p : RecipientParameters F G PQPK PQSK SPK SSK S)
     (msg : InitialMessage G CT C IdC IdK) :
     ProbComp (Option (SessionContext G PQPK Msg K)) := do
   if msg.idSPK ≠ P.idEC p.spkB.1 ∨ msg.idPQPK ≠ P.idKEM p.pqpkB.1 ∨
