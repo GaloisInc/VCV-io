@@ -100,6 +100,32 @@ noncomputable def INT_CTXT_VF_Advantage (aead : Scheme ProbComp Msg Key AD C)
     (A : INT_CTXT_VF_Adversary aead) : ℝ :=
   (Pr[= true | INT_CTXT_VF_Game aead A]).toReal
 
+def ctxtDecImpl (aead : Scheme ProbComp Msg Key AD C) (k : Key) :
+    QueryImpl (((AD × Msg) →ₒ C) + ((AD × C) →ₒ Option Msg))
+      (StateT (List (AD × C) × Bool) ProbComp) :=
+  (show QueryImpl ((AD × Msg) →ₒ C) (StateT (List (AD × C) × Bool) ProbComp) from
+    fun p => do
+      let c ← (aead.encrypt k p.1 p.2 : ProbComp C)
+      modify (fun s => (s.1 ++ [(p.1, c)], s.2))
+      pure c) +
+  (show QueryImpl ((AD × C) →ₒ Option Msg) (StateT (List (AD × C) × Bool) ProbComp) from
+    fun p => do
+      modify (fun s => (s.1, s.2 || ((aead.decrypt k p.1 p.2).isSome && decide (p ∉ s.1))))
+      pure (aead.decrypt k p.1 p.2))
+
+structure INT_CTXT_D_Adversary (_aead : Scheme ProbComp Msg Key AD C) where
+  run : OracleComp (unifSpec + (((AD × Msg) →ₒ C) + ((AD × C) →ₒ Option Msg))) Unit
+
+def INT_CTXT_D_Game (aead : Scheme ProbComp Msg Key AD C)
+    (A : INT_CTXT_D_Adversary aead) : ProbComp Bool := do
+  let k ← $ᵗ Key
+  let (_, _, won) ← (simulateQ (withUnif (ctxtDecImpl aead k)) A.run).run ([], false)
+  pure won
+
+noncomputable def INT_CTXT_D_Advantage (aead : Scheme ProbComp Msg Key AD C)
+    (A : INT_CTXT_D_Adversary aead) : ℝ :=
+  (Pr[= true | INT_CTXT_D_Game aead A]).toReal
+
 omit [DecidableEq Msg] in
 theorem INT_CTXT_Advantage_le_INT_CTXT_VF_Advantage
     (aead : Scheme ProbComp Msg Key AD C) (A : INT_CTXT_Adversary aead) :
@@ -113,6 +139,21 @@ theorem INT_CTXT_VF_Advantage_le_mul_INT_CTXT_Advantage
     (hv : B.run.IsQueryBoundP (· matches Sum.inr (Sum.inr _)) v) :
     ∃ A : INT_CTXT_Adversary aead,
       INT_CTXT_VF_Advantage aead B ≤ (v : ℝ) * INT_CTXT_Advantage aead A := by
+  sorry
+
+omit [DecidableEq Msg] in
+theorem INT_CTXT_Advantage_le_INT_CTXT_D_Advantage
+    (aead : Scheme ProbComp Msg Key AD C) (A : INT_CTXT_Adversary aead) :
+    ∃ B : INT_CTXT_D_Adversary aead,
+      INT_CTXT_Advantage aead A ≤ INT_CTXT_D_Advantage aead B := by
+  sorry
+
+theorem INT_CTXT_D_Advantage_le_mul_INT_CTXT_Advantage
+    (aead : Scheme ProbComp Msg Key AD C) (hcorrect : PerfectlyCorrect aead)
+    (B : INT_CTXT_D_Adversary aead) (v : ℕ)
+    (hv : B.run.IsQueryBoundP (· matches Sum.inr (Sum.inr _)) v) :
+    ∃ A : INT_CTXT_Adversary aead,
+      INT_CTXT_D_Advantage aead B ≤ (v : ℝ) * INT_CTXT_Advantage aead A := by
   sorry
 
 end AEAD
