@@ -53,17 +53,9 @@ require loom2 from git
   "https://github.com/quangvdao/loom2" @
   "eccaa1eb"
 
-/-
-Aeneas: upstream pins Lean 4.28.0-rc1. Lake happily resolves aeneas against
-our root Mathlib v4.30.0 and Lean v4.30.0, but aeneas's source has three
-real regressions under that stack — see `Interop/Aeneas/README.md` for the
-exact diagnostics. Leave this commented until upstream ships a v4.30 build
-(or pin to a patched fork). Latest upstream `main` as of 2026-04-17 is
-`ba600392`; subdirectory `backends/lean`.
--/
--- require aeneas from git
---   "https://github.com/AeneasVerif/aeneas" @
---   "ba600392" / "backends/lean"
+require aeneas from git
+  "https://github.com/AeneasVerif/aeneas" @
+  "45061fa1a5b4bad876f17c03d3a5544d818622e6" / "backends/lean"
 
 require "leanprover-community" / "mathlib" @ git "v4.30.0"
 
