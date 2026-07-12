@@ -7,6 +7,7 @@ import PQXDH.Aeneas.Extracted.Pqxdh
 import PQXDH.Spec.Basic
 import PQXDH.Spec.UAKE
 import PQXDH.ToVCVio.CryptoFoundations.AKE.UAKE.Defs
+import PQXDH.HardnessAssumptions.DiffieHellman
 
 /-!
 # PQXDH as a UAKE, instantiated with the Aeneas-extracted implementation
@@ -135,26 +136,8 @@ def kdfPRFDH (P : Parameters SPK SSK S C Msg IdC IdK) :
   keygen := P.ecKeygen
   eval := fun kp q => getOk (deriveKeys q.1 q.2.1 kp.public_key q.2.2.1 q.2.2.2)
 
-def DDHAdversary : Type := ECKey → ECKey → ECKey → ProbComp Bool
-
-def ddhExpReal (P : Parameters SPK SSK S C Msg IdC IdK) (adversary : DDHAdversary) :
-    ProbComp Bool := do
-  let kpA ← P.ecKeygen
-  let kpB ← P.ecKeygen
-  adversary kpA.public_key kpB.public_key
-    (getOk (pqxdh.x25519_agree kpA.private_key kpB.public_key))
-
-def ddhExpRand (P : Parameters SPK SSK S C Msg IdC IdK) (adversary : DDHAdversary) :
-    ProbComp Bool := do
-  let kpA ← P.ecKeygen
-  let kpB ← P.ecKeygen
-  let kpC ← P.ecKeygen
-  adversary kpA.public_key kpB.public_key kpC.public_key
-
-noncomputable def ddhDistAdvantage (P : Parameters SPK SSK S C Msg IdC IdK)
-    (adversary : DDHAdversary) : ℝ :=
-  |(Pr[= true | ddhExpReal P adversary]).toReal -
-    (Pr[= true | ddhExpRand P adversary]).toReal|
+def x25519DH (kp : pqxdh.KeyPair) (pk : ECKey) : ECKey :=
+  getOk (pqxdh.x25519_agree kp.private_key pk)
 
 def genOPK (keygen : ProbComp pqxdh.KeyPair) (hasOPK : Bool) :
     ProbComp (Option pqxdh.KeyPair) :=
@@ -920,7 +903,9 @@ theorem uakeInitiator_secure_dh
       (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hdh : AgreeComm P)
     (hagree : AgreeTotal P)
-    (hddh : ∀ D : DDHAdversary, ddhDistAdvantage P D ≤ εddh)
+    (hddh : ∀ D : DiffieHellman.NominalDDHAdversary ECKey,
+      DiffieHellman.nominalDDHDistAdvantage P.ecKeygen pqxdh.KeyPair.public_key
+        x25519DH D ≤ εddh)
     (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
       AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead)
     (hkdfTotal : DeriveKeysTotal)
