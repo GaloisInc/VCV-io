@@ -31,6 +31,13 @@ instance {α : Type} {n : Aeneas.Std.Usize} [SampleableType α] :
     SampleableType (Aeneas.Std.Array α n) :=
   inferInstanceAs (SampleableType (List.Vector α n.val))
 
+instance : Fintype Aeneas.Std.U8 :=
+  Fintype.ofEquiv (BitVec 8) ⟨fun bv => ⟨bv⟩, fun x => x.bv, fun _ => rfl, fun _ => rfl⟩
+
+instance {α : Type} {n : Aeneas.Std.Usize} [Fintype α] :
+    Fintype (Aeneas.Std.Array α n) :=
+  inferInstanceAs (Fintype (List.Vector α n.val))
+
 abbrev Bytes (n : Aeneas.Std.Usize) : Type := Aeneas.Std.Array Aeneas.Std.U8 n
 
 abbrev ECKey : Type := Bytes 32#usize
@@ -869,6 +876,331 @@ theorem uakeRecipient_perfectlyCorrect
 
 section Security
 
+def specParams (P : Parameters SPK SSK S C Msg IdC IdK) (F : Type) (gen : ECKey) :
+    _root_.PQXDH.Parameters F ECKey SS PQPK PQSK CT SPK SSK S C Msg Key IdC IdK where
+  gen := gen
+  pqkem := pqkem P
+  sig := P.sig
+  aead := P.aead
+  kdf := fun km => getOk (deriveKeys km.1 km.2.1 km.2.2.1 km.2.2.2.1 km.2.2.2.2)
+  idEC := P.idEC
+  idKEM := P.idKEM
+
+variable {F : Type}
+
+def kpOfPair (privEnc : F → Bytes 32#usize) (p : ECKey × F) : pqxdh.KeyPair where
+  private_key := privEnc p.2
+  public_key := p.1
+
+def ukOfSpec (privEnc : F → Bytes 32#usize)
+    (uk : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg) :
+    InitiatorParameters SPK Msg where
+  ikA := kpOfPair privEnc uk.ikA
+  ikB := uk.ikB
+  sigpkB := uk.sigpkB
+  msg := uk.msg
+
+def tkOfSpec (privEnc : F → Bytes 32#usize)
+    (tk : _root_.PQXDH.RecipientIdentity F ECKey SPK SSK S) :
+    RecipientIdentity SPK SSK S where
+  ikB := kpOfPair privEnc tk.ikB
+  sigkB := tk.sigkB
+  spkB := kpOfPair privEnc tk.spkB
+  spkSigB := tk.spkSigB
+
+def rpOfSpec (privEnc : F → Bytes 32#usize)
+    (rp : _root_.PQXDH.RecipientParameters F ECKey PQPK PQSK SPK SSK S) :
+    RecipientParameters SPK SSK S where
+  ikB := kpOfPair privEnc rp.ikB
+  sigkB := rp.sigkB
+  spkB := kpOfPair privEnc rp.spkB
+  spkSigB := rp.spkSigB
+  opkB := rp.opkB.map (kpOfPair privEnc)
+  pqpkB := rp.pqpkB
+
+structure ECGroupModel [Field F] [SampleableType F] [AddCommGroup ECKey] [Module F ECKey]
+    (P : Parameters SPK SSK S C Msg IdC IdK) (gen : ECKey) (privEnc : F → Bytes 32#usize) :
+    Prop where
+  keygen_eq : P.ecKeygen = kpOfPair privEnc <$> _root_.PQXDH.dhKeygen (F := F) gen
+  agree_eq : ∀ (a : F) (pk : ECKey),
+    pqxdh.x25519_agree (privEnc a) pk = .ok (_root_.PQXDH.DH a pk)
+  canonical_eq : ∀ pk : ECKey, pqxdh.ec_is_canonical pk = .ok true
+
+def EncapsTotalAll : Prop :=
+  ∀ (pk : PQPK) (coins : Coins), ∃ r, pqxdh.mlkem_encapsulate pk coins = .ok r
+
+def mapInitResult {St₁ St₂ W : Type} (σ : St₁ → St₂) :
+    Party.InitResult St₁ W → Party.InitResult St₂ W
+  | .speakFirst st w => .speakFirst (σ st) w
+  | .waitForMsg st => .waitForMsg (σ st)
+
+def mapStepResult {St₁ St₂ W : Type} (σ : St₁ → St₂) :
+    Party.StepResult St₁ W → Party.StepResult St₂ W
+  | .acceptAndSend st w done => .acceptAndSend (σ st) w done
+  | .complete st => .complete (σ st)
+  | .reject => .reject
+
+section GroupModelBridge
+
+variable [Field F] [SampleableType F] [AddCommGroup ECKey] [Module F ECKey]
+  (P : Parameters SPK SSK S C Msg IdC IdK) (gen : ECKey) (privEnc : F → Bytes 32#usize)
+
+private lemma genOPK_toSpec (hM : ECGroupModel P gen privEnc) (hasOPK : Bool) :
+    genOPK P.ecKeygen hasOPK
+      = Option.map (kpOfPair privEnc) <$> _root_.PQXDH.genOPK (F := F) gen hasOPK := by
+  sorry
+
+private lemma setup_toSpec (hM : ECGroupModel P gen privEnc) (msg : Msg) :
+    setup P msg
+      = Prod.map (ukOfSpec privEnc) (tkOfSpec privEnc) <$>
+          _root_.PQXDH.setup (specParams P F gen) msg := by
+  sorry
+
+private lemma publish_toSpec
+    (rp : _root_.PQXDH.RecipientParameters F ECKey PQPK PQSK SPK SSK S) :
+    publish P (rpOfSpec privEnc rp) = _root_.PQXDH.publish (specParams P F gen) rp := by
+  sorry
+
+private lemma initiate_toSpec (hM : ECGroupModel P gen privEnc)
+    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
+    (uk : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg)
+    (bundle : PreKeyBundle ECKey PQPK S IdC IdK) :
+    initiate P (ukOfSpec privEnc uk) bundle
+      = _root_.PQXDH.initiate (specParams P F gen) uk bundle := by
+  sorry
+
+private lemma accept_toSpec [DecidableEq IdC] [DecidableEq IdK]
+    (hM : ECGroupModel P gen privEnc)
+    (hkdfTotal : DeriveKeysTotal)
+    (rp : _root_.PQXDH.RecipientParameters F ECKey PQPK PQSK SPK SSK S)
+    (im : InitialMessage ECKey CT C IdC IdK) :
+    accept P (rpOfSpec privEnc rp) im = _root_.PQXDH.accept (specParams P F gen) rp im := by
+  sorry
+
+omit [Field F] [SampleableType F] [AddCommGroup ECKey] [Module F ECKey] in
+private lemma confirm_toSpec [DecidableEq Msg]
+    (ctx : SessionContext ECKey PQPK Msg Key) (conf : C) :
+    confirm P ctx conf = _root_.PQXDH.confirm (specParams P F gen) ctx conf :=
+  rfl
+
+private lemma initiator_init_toSpec [DecidableEq Msg]
+    (uk : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg) :
+    (initiator P).init (ukOfSpec privEnc uk)
+      = mapInitResult (Sum.map (ukOfSpec privEnc) id) <$>
+          (_root_.PQXDH.initiator (specParams P F gen)).init uk := by
+  simp only [initiator, _root_.PQXDH.initiator, map_pure, mapInitResult, Sum.map_inl]
+
+private lemma initiator_step_toSpec [DecidableEq Msg]
+    (hM : ECGroupModel P gen privEnc)
+    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
+    (st : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg ⊕
+      SessionContext ECKey PQPK Msg Key ⊕ Key)
+    (w : Message ECKey PQPK CT S C IdC IdK) :
+    (initiator P).step (Sum.map (ukOfSpec privEnc) id st) w
+      = mapStepResult (Sum.map (ukOfSpec privEnc) id) <$>
+          (_root_.PQXDH.initiator (specParams P F gen)).step st w := by
+  sorry
+
+private lemma initiator_output_toSpec [DecidableEq Msg]
+    (st : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg ⊕
+      SessionContext ECKey PQPK Msg Key ⊕ Key) :
+    (initiator P).output (Sum.map (ukOfSpec privEnc) id st)
+      = (_root_.PQXDH.initiator (specParams P F gen)).output st := by
+  rcases st with p | ctx | k <;> rfl
+
+private lemma recipient_init_toSpec [DecidableEq IdC] [DecidableEq IdK]
+    (hM : ECGroupModel P gen privEnc) (hasOPK : Bool)
+    (tk : _root_.PQXDH.RecipientIdentity F ECKey SPK SSK S) :
+    (recipient P hasOPK).init (tkOfSpec privEnc tk)
+      = mapInitResult (Sum.map (rpOfSpec privEnc) id) <$>
+          (_root_.PQXDH.recipient (specParams P F gen) hasOPK).init tk := by
+  sorry
+
+private lemma recipient_step_toSpec [DecidableEq IdC] [DecidableEq IdK]
+    (hM : ECGroupModel P gen privEnc)
+    (hkdfTotal : DeriveKeysTotal) (hasOPK : Bool)
+    (st : _root_.PQXDH.RecipientParameters F ECKey PQPK PQSK SPK SSK S ⊕ Key)
+    (w : Message ECKey PQPK CT S C IdC IdK) :
+    (recipient P hasOPK).step (Sum.map (rpOfSpec privEnc) id st) w
+      = mapStepResult (Sum.map (rpOfSpec privEnc) id) <$>
+          (_root_.PQXDH.recipient (specParams P F gen) hasOPK).step st w := by
+  sorry
+
+private lemma recipient_output_toSpec [DecidableEq IdC] [DecidableEq IdK] (hasOPK : Bool)
+    (st : _root_.PQXDH.RecipientParameters F ECKey PQPK PQSK SPK SSK S ⊕ Key) :
+    (recipient P hasOPK).output (Sum.map (rpOfSpec privEnc) id st)
+      = (_root_.PQXDH.recipient (specParams P F gen) hasOPK).output st := by
+  rcases st with rp | k <;> rfl
+
+variable {msg : Msg} {hasOPK : Bool}
+
+def _root_.AKE.UAKE.Adversary.toSpec
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters SPK SSK S C Msg IdC IdK}
+    (gen : ECKey) (privEnc : F → Bytes 32#usize)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    UAKE.Adversary (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK) where
+  State := A.State
+  challenge := fun uk w => A.challenge (ukOfSpec privEnc uk) w
+  post := A.post
+
+private lemma opensAtMost_toSpec
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters SPK SSK S C Msg IdC IdK}
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) {q : ℕ}
+    (hq : A.OpensAtMost q) : (A.toSpec gen privEnc).OpensAtMost q :=
+  ⟨fun uk w => hq.1 (ukOfSpec privEnc uk) w, hq.2⟩
+
+def envOfSpec [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters SPK SSK S C Msg IdC IdK}
+    (privEnc : F → Bytes 32#usize)
+    (e : UAKE.Env (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)) :
+    UAKE.Env (uakeInitiator P msg hasOPK) where
+  clock := e.clock
+  challenge := ⟨Sum.map (ukOfSpec privEnc) id e.challenge.state, e.challenge.transcript⟩
+  challengeDone := e.challengeDone
+  tSessions := e.tSessions.map fun t =>
+    ⟨Sum.map (rpOfSpec privEnc) id t.state, t.transcript, t.key, t.revealed⟩
+
+def crOfSpec [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters SPK SSK S C Msg IdC IdK}
+    (cr : UAKE.ChallengeResult (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)) :
+    UAKE.ChallengeResult (uakeInitiator P msg hasOPK) :=
+  ⟨cr.K0, cr.challengeTr, cr.oracleTrs⟩
+
+private lemma opImpl_toSpec [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters SPK SSK S C Msg IdC IdK}
+    (hM : ECGroupModel P gen privEnc)
+    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
+    (tk : _root_.PQXDH.RecipientIdentity F ECKey SPK SSK S)
+    (op : UAKE.Op (Message ECKey PQPK CT S C IdC IdK))
+    (e : UAKE.Env (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)) :
+    (UAKE.opImpl (uakeInitiator P msg hasOPK) (tkOfSpec privEnc tk) op).run
+        (envOfSpec gen privEnc e)
+      = Prod.map id (envOfSpec gen privEnc) <$>
+          (UAKE.opImpl (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)
+            tk op).run e := by
+  sorry
+
+private lemma challengeSession_toSpec
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters SPK SSK S C Msg IdC IdK}
+    (hM : ECGroupModel P gen privEnc)
+    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (uk : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg)
+    (tk : _root_.PQXDH.RecipientIdentity F ECKey SPK SSK S) :
+    UAKE.challengeSession A (ukOfSpec privEnc uk) (tkOfSpec privEnc tk)
+      = (fun r => (crOfSpec gen r.1,
+          (r.2.1, envOfSpec gen privEnc r.2.2.1, tkOfSpec privEnc r.2.2.2))) <$>
+          UAKE.challengeSession (A.toSpec gen privEnc) uk tk := by
+  sorry
+
+private lemma exp_toSpec
+    [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters SPK SSK S C Msg IdC IdK}
+    (hM : ECGroupModel P gen privEnc)
+    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    UAKE.Exp A = UAKE.Exp (A.toSpec gen privEnc) := by
+  sorry
+
+private lemma advantage_toSpec
+    [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters SPK SSK S C Msg IdC IdK}
+    (hM : ECGroupModel P gen privEnc)
+    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    UAKE.advantage A = UAKE.advantage (A.toSpec gen privEnc) := by
+  unfold UAKE.advantage
+  rw [exp_toSpec gen privEnc hM hencTotal hkdfTotal A]
+
+omit [Field F] [SampleableType F] [AddCommGroup ECKey] [Module F ECKey] in
+private lemma kdfPRF_specParams {P : Parameters SPK SSK S C Msg IdC IdK} :
+    _root_.PQXDH.kdfPRF (specParams P F gen) = kdfPRF :=
+  rfl
+
+private lemma kdfPRFDH_advantage_toSpec {P : Parameters SPK SSK S C Msg IdC IdK}
+    (hM : ECGroupModel P gen privEnc)
+    (D : PRFScheme.PRFAdversary (ECKey × ECKey × Option ECKey × SS) (Key × Key × Key)) :
+    (_root_.PQXDH.kdfPRFDH (specParams P F gen)).prfAdvantage D
+      = (kdfPRFDH P).prfAdvantage D := by
+  sorry
+
+private lemma ddh_advantage_toSpec {P : Parameters SPK SSK S C Msg IdC IdK}
+    (hM : ECGroupModel P gen privEnc)
+    (D : _root_.DiffieHellman.DDHAdversary F ECKey) :
+    _root_.DiffieHellman.ddhDistAdvantage gen D
+      = DiffieHellman.nominalDDHDistAdvantage P.ecKeygen pqxdh.KeyPair.public_key
+          x25519DH (D gen) := by
+  sorry
+
+end GroupModelBridge
+
+theorem uakeInitiator_secure_pq_ofGroupModel
+    [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    [Inhabited S] [Inhabited SSK]
+    {F : Type} [Field F] [SampleableType F] [AddCommGroup ECKey] [Module F ECKey]
+    (P : Parameters SPK SSK S C Msg IdC IdK) (gen : ECKey) (privEnc : F → Bytes 32#usize)
+    (msg : Msg) (hasOPK : Bool)
+    (hM : ECGroupModel P gen privEnc)
+    (hidKEM : Function.Injective P.idKEM)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
+    (εsig εkem εaead εkdf : ℝ)
+    (hverifyDet : ∀ (pk : SPK) (m : ECKey ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    (hsig : ∀ B : P.sig.unforgeableAdv,
+      (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
+    (hkem : ∀ B : (pqkem P).IND_CCA_Adversary,
+      KEMScheme.IND_CCA_Advantage ProbCompRuntime.probComp B ≤ εkem)
+    (haead : ∀ B : AEAD.INT_CTXT_D_Adversary P.aead,
+      AEAD.INT_CTXT_D_Advantage P.aead B ≤ εaead)
+    (hencTotal : EncapsTotalAll)
+    (hkdfTotal : DeriveKeysTotal)
+    (hkdf : ∀ D : PRFScheme.PRFAdversary (ECKey × ECKey × ECKey × Option ECKey)
+        (Key × Key × Key),
+      kdfPRF.prfAdvantage D ≤ εkdf) :
+    UAKE.advantage A ≤ εsig + q * (εkem + εaead + εkdf) := by
+  rw [advantage_toSpec gen privEnc hM hencTotal hkdfTotal A]
+  exact _root_.PQXDH.uakeInitiator_secure_pq (specParams P F gen) msg hasOPK hidKEM
+    (A.toSpec gen privEnc) q (opensAtMost_toSpec gen privEnc A hq)
+    εsig εkem εaead εkdf hverifyDet hsig hkem haead
+    (fun D => by rw [kdfPRF_specParams]; exact hkdf D)
+
+theorem uakeInitiator_secure_dh_ofGroupModel
+    [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    [Inhabited S] [Inhabited SSK]
+    {F : Type} [Field F] [SampleableType F] [AddCommGroup ECKey] [Module F ECKey]
+    (P : Parameters SPK SSK S C Msg IdC IdK) (gen : ECKey) (privEnc : F → Bytes 32#usize)
+    (msg : Msg) (hasOPK : Bool)
+    (hM : ECGroupModel P gen privEnc)
+    (hidKEM : Function.Injective P.idKEM)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
+    (εsig εddh εaead εkdf : ℝ)
+    (hverifyDet : ∀ (pk : SPK) (m : ECKey ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    (hsig : ∀ B : P.sig.unforgeableAdv,
+      (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
+    (hddh : ∀ D : DiffieHellman.NominalDDHAdversary ECKey,
+      DiffieHellman.nominalDDHDistAdvantage P.ecKeygen pqxdh.KeyPair.public_key
+        x25519DH D ≤ εddh)
+    (haead : ∀ B : AEAD.INT_CTXT_D_Adversary P.aead,
+      AEAD.INT_CTXT_D_Advantage P.aead B ≤ εaead)
+    (hencTotal : EncapsTotalAll)
+    (hkdfTotal : DeriveKeysTotal)
+    (hkdf : ∀ D : PRFScheme.PRFAdversary (ECKey × ECKey × Option ECKey × SS)
+        (Key × Key × Key),
+      (kdfPRFDH P).prfAdvantage D ≤ εkdf) :
+    UAKE.advantage A ≤ εsig + q * (εddh + εaead + εkdf) := by
+  rw [advantage_toSpec gen privEnc hM hencTotal hkdfTotal A]
+  exact _root_.PQXDH.uakeInitiator_secure_dh (specParams P F gen) msg hasOPK hidKEM
+    (A.toSpec gen privEnc) q (opensAtMost_toSpec gen privEnc A hq)
+    εsig εddh εaead εkdf hverifyDet hsig
+    (fun D => by
+      have h := hddh (D gen)
+      rw [← ddh_advantage_toSpec gen privEnc hM D] at h
+      exact h)
+    haead
+    (fun D => by rw [kdfPRFDH_advantage_toSpec gen privEnc hM D]; exact hkdf D)
+
 theorem uakeInitiator_secure_pq
     [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     [Inhabited S] [Inhabited SSK]
@@ -889,7 +1221,17 @@ theorem uakeInitiator_secure_pq
         (Key × Key × Key),
       kdfPRF.prfAdvantage D ≤ εkdf) :
     UAKE.advantage A ≤ εsig + q * (εkem + εaead + εkdf) := by
-  sorry
+  have hGroupModel : ∃ (F : Type) (_ : Field F) (_ : SampleableType F)
+      (_ : AddCommGroup ECKey) (_ : Module F ECKey)
+      (gen : ECKey) (privEnc : F → Bytes 32#usize),
+      ECGroupModel P gen privEnc := by
+    sorry
+  have hencTotalAll : EncapsTotalAll := by
+    sorry
+  obtain ⟨F, iField, iSamp, iGroup, iMod, gen, privEnc, hM⟩ := hGroupModel
+  letI := iField; letI := iSamp; letI := iGroup; letI := iMod
+  exact uakeInitiator_secure_pq_ofGroupModel P gen privEnc msg hasOPK hM hidKEM A q hq
+    εsig εkem εaead εkdf hverifyDet hsig hkem haead hencTotalAll hkdfTotal hkdf
 
 theorem uakeInitiator_secure_dh
     [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
@@ -913,7 +1255,17 @@ theorem uakeInitiator_secure_dh
         (Key × Key × Key),
       (kdfPRFDH P).prfAdvantage D ≤ εkdf) :
     UAKE.advantage A ≤ εsig + q * (εddh + εaead + εkdf) := by
-  sorry
+  have hGroupModel : ∃ (F : Type) (_ : Field F) (_ : SampleableType F)
+      (_ : AddCommGroup ECKey) (_ : Module F ECKey)
+      (gen : ECKey) (privEnc : F → Bytes 32#usize),
+      ECGroupModel P gen privEnc := by
+    sorry
+  have hencTotalAll : EncapsTotalAll := by
+    sorry
+  obtain ⟨F, iField, iSamp, iGroup, iMod, gen, privEnc, hM⟩ := hGroupModel
+  letI := iField; letI := iSamp; letI := iGroup; letI := iMod
+  exact uakeInitiator_secure_dh_ofGroupModel P gen privEnc msg hasOPK hM hidKEM A q hq
+    εsig εddh εaead εkdf hverifyDet hsig hddh haead hencTotalAll hkdfTotal hkdf
 
 end Security
 
