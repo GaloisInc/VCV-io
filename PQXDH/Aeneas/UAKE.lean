@@ -881,8 +881,8 @@ theorem uakeInitiator_secure_pq
       (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hkem : ∀ B : (pqkem P).IND_CCA_Adversary,
       KEMScheme.IND_CCA_Advantage ProbCompRuntime.probComp B ≤ εkem)
-    (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
-      AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead)
+    (haead : ∀ B : AEAD.INT_CTXT_D_Adversary P.aead,
+      AEAD.INT_CTXT_D_Advantage P.aead B ≤ εaead)
     (hencTotal : EncapsTotal P)
     (hkdfTotal : DeriveKeysTotal)
     (hkdf : ∀ D : PRFScheme.PRFAdversary (ECKey × ECKey × ECKey × Option ECKey)
@@ -906,8 +906,8 @@ theorem uakeInitiator_secure_dh
     (hddh : ∀ D : DiffieHellman.NominalDDHAdversary ECKey,
       DiffieHellman.nominalDDHDistAdvantage P.ecKeygen pqxdh.KeyPair.public_key
         x25519DH D ≤ εddh)
-    (haead : ∀ B : AEAD.INT_CTXT_VF_Adversary P.aead,
-      AEAD.INT_CTXT_VF_Advantage P.aead B ≤ εaead)
+    (haead : ∀ B : AEAD.INT_CTXT_D_Adversary P.aead,
+      AEAD.INT_CTXT_D_Advantage P.aead B ≤ εaead)
     (hkdfTotal : DeriveKeysTotal)
     (hkdf : ∀ D : PRFScheme.PRFAdversary (ECKey × ECKey × Option ECKey × SS)
         (Key × Key × Key),
