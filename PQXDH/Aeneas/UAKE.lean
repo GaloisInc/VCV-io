@@ -7,6 +7,7 @@ import PQXDH.Aeneas.Extracted.Pqxdh
 import PQXDH.Spec.Basic
 import PQXDH.Spec.UAKE
 import PQXDH.ToVCVio.CryptoFoundations.AKE.UAKE.Defs
+import PQXDH.ToVCVio.CryptoFoundations.AKE.UAKE.Transport
 import PQXDH.HardnessAssumptions.DiffieHellman
 
 /-!
@@ -929,24 +930,6 @@ structure ECGroupModel [Field F] [SampleableType F] [AddCommGroup ECKey] [Module
 def EncapsTotalAll : Prop :=
   ∀ (pk : PQPK) (coins : Coins), ∃ r, pqxdh.mlkem_encapsulate pk coins = .ok r
 
-def mapInitResult {St₁ St₂ W : Type} (σ : St₁ → St₂) :
-    Party.InitResult St₁ W → Party.InitResult St₂ W
-  | .speakFirst st w => .speakFirst (σ st) w
-  | .waitForMsg st => .waitForMsg (σ st)
-
-def mapStepResult {St₁ St₂ W : Type} (σ : St₁ → St₂) :
-    Party.StepResult St₁ W → Party.StepResult St₂ W
-  | .acceptAndSend st w done => .acceptAndSend (σ st) w done
-  | .complete st => .complete (σ st)
-  | .reject => .reject
-
-private lemma mapInitResult_state {St₁ St₂ W : Type} (σ : St₁ → St₂)
-    (r : Party.InitResult St₁ W) : (mapInitResult σ r).state = σ r.state := by
-  cases r <;> rfl
-
-private lemma mapInitResult_opening {St₁ St₂ W : Type} (σ : St₁ → St₂)
-    (r : Party.InitResult St₁ W) : (mapInitResult σ r).opening = r.opening := by
-  cases r <;> rfl
 
 section GroupModelBridge
 
@@ -1190,9 +1173,9 @@ private lemma confirm_toSpec [DecidableEq Msg]
 private lemma initiator_init_toSpec [DecidableEq Msg]
     (uk : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg) :
     (initiator P).init (ukOfSpec privEnc uk)
-      = mapInitResult (Sum.map (ukOfSpec privEnc) id) <$>
+      = Party.InitResult.map (Sum.map (ukOfSpec privEnc) id) <$>
           (_root_.PQXDH.initiator (specParams P F gen)).init uk := by
-  simp only [initiator, _root_.PQXDH.initiator, map_pure, mapInitResult, Sum.map_inl]
+  simp only [initiator, _root_.PQXDH.initiator, map_pure, Party.InitResult.map, Sum.map_inl]
 
 private lemma initiator_step_toSpec [DecidableEq Msg]
     (hM : ECGroupModel P gen privEnc)
@@ -1201,7 +1184,7 @@ private lemma initiator_step_toSpec [DecidableEq Msg]
       SessionContext ECKey PQPK Msg Key ⊕ Key)
     (w : Message ECKey PQPK CT S C IdC IdK) :
     (initiator P).step (Sum.map (ukOfSpec privEnc) id st) w
-      = mapStepResult (Sum.map (ukOfSpec privEnc) id) <$>
+      = Party.StepResult.map (Sum.map (ukOfSpec privEnc) id) <$>
           (_root_.PQXDH.initiator (specParams P F gen)).step st w := by
   rcases st with p | ctx | k
   · cases w with
@@ -1209,17 +1192,17 @@ private lemma initiator_step_toSpec [DecidableEq Msg]
         simp only [initiator, _root_.PQXDH.initiator, Sum.map_inl,
           initiate_toSpec P gen privEnc hM hencTotal hkdfTotal p b, map_bind]
         refine bind_congr fun r => ?_
-        rcases r with _ | ⟨im, ctx⟩ <;> simp [mapStepResult]
-    | initial im => simp [initiator, _root_.PQXDH.initiator, mapStepResult]
-    | confirmation c => simp [initiator, _root_.PQXDH.initiator, mapStepResult]
+        rcases r with _ | ⟨im, ctx⟩ <;> simp [Party.StepResult.map]
+    | initial im => simp [initiator, _root_.PQXDH.initiator, Party.StepResult.map]
+    | confirmation c => simp [initiator, _root_.PQXDH.initiator, Party.StepResult.map]
   · cases w with
-    | bundle b => simp [initiator, _root_.PQXDH.initiator, mapStepResult]
-    | initial im => simp [initiator, _root_.PQXDH.initiator, mapStepResult]
+    | bundle b => simp [initiator, _root_.PQXDH.initiator, Party.StepResult.map]
+    | initial im => simp [initiator, _root_.PQXDH.initiator, Party.StepResult.map]
     | confirmation conf =>
         simp only [initiator, _root_.PQXDH.initiator, Sum.map_inr, id_eq]
         rw [confirm_toSpec (F := F) P gen ctx conf]
-        cases _root_.PQXDH.confirm (specParams P F gen) ctx conf <;> simp [mapStepResult]
-  · cases w <;> simp [initiator, _root_.PQXDH.initiator, mapStepResult]
+        cases _root_.PQXDH.confirm (specParams P F gen) ctx conf <;> simp [Party.StepResult.map]
+  · cases w <;> simp [initiator, _root_.PQXDH.initiator, Party.StepResult.map]
 
 private lemma initiator_output_toSpec [DecidableEq Msg]
     (st : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg ⊕
@@ -1232,7 +1215,7 @@ private lemma recipient_init_toSpec [DecidableEq IdC] [DecidableEq IdK]
     (hM : ECGroupModel P gen privEnc) (hasOPK : Bool)
     (tk : _root_.PQXDH.RecipientIdentity F ECKey SPK SSK S) :
     (recipient P hasOPK).init (tkOfSpec privEnc tk)
-      = mapInitResult (Sum.map (rpOfSpec privEnc) id) <$>
+      = Party.InitResult.map (Sum.map (rpOfSpec privEnc) id) <$>
           (_root_.PQXDH.recipient (specParams P F gen) hasOPK).init tk := by
   simp only [recipient, _root_.PQXDH.recipient, genOPK_toSpec P gen privEnc hM hasOPK,
     specParams, pqkem, tkOfSpec, map_bind, bind_map_left]
@@ -1244,7 +1227,7 @@ private lemma recipient_init_toSpec [DecidableEq IdC] [DecidableEq IdK]
       = rpOfSpec privEnc ⟨tk.ikB, tk.sigkB, tk.spkB, tk.spkSigB, opkB, pqpkB⟩ := rfl
   rw [hrp, publish_toSpec]
   refine bind_congr fun bundle => ?_
-  simp [mapInitResult, rpOfSpec]
+  simp [Party.InitResult.map, rpOfSpec]
 
 private lemma recipient_step_toSpec [DecidableEq IdC] [DecidableEq IdK]
     (hM : ECGroupModel P gen privEnc)
@@ -1252,18 +1235,18 @@ private lemma recipient_step_toSpec [DecidableEq IdC] [DecidableEq IdK]
     (st : _root_.PQXDH.RecipientParameters F ECKey PQPK PQSK SPK SSK S ⊕ Key)
     (w : Message ECKey PQPK CT S C IdC IdK) :
     (recipient P hasOPK).step (Sum.map (rpOfSpec privEnc) id st) w
-      = mapStepResult (Sum.map (rpOfSpec privEnc) id) <$>
+      = Party.StepResult.map (Sum.map (rpOfSpec privEnc) id) <$>
           (_root_.PQXDH.recipient (specParams P F gen) hasOPK).step st w := by
   rcases st with rp | k
   · cases w with
-    | bundle b => simp [recipient, _root_.PQXDH.recipient, mapStepResult]
+    | bundle b => simp [recipient, _root_.PQXDH.recipient, Party.StepResult.map]
     | initial im =>
         simp only [recipient, _root_.PQXDH.recipient, Sum.map_inl,
           accept_toSpec P gen privEnc hM hkdfTotal rp im, map_bind]
         refine bind_congr fun r => ?_
-        rcases r with _ | ctx <;> simp [mapStepResult, specParams]
-    | confirmation c => simp [recipient, _root_.PQXDH.recipient, mapStepResult]
-  · cases w <;> simp [recipient, _root_.PQXDH.recipient, mapStepResult]
+        rcases r with _ | ctx <;> simp [Party.StepResult.map, specParams]
+    | confirmation c => simp [recipient, _root_.PQXDH.recipient, Party.StepResult.map]
+  · cases w <;> simp [recipient, _root_.PQXDH.recipient, Party.StepResult.map]
 
 private lemma recipient_output_toSpec [DecidableEq IdC] [DecidableEq IdK] (hasOPK : Bool)
     (st : _root_.PQXDH.RecipientParameters F ECKey PQPK PQSK SPK SSK S ⊕ Key) :
@@ -1290,50 +1273,22 @@ private lemma opensAtMost_toSpec
     (hq : A.OpensAtMost q) : (A.toSpec gen privEnc).OpensAtMost q :=
   ⟨fun uk w => hq.1 (ukOfSpec privEnc uk) w, hq.2⟩
 
-def envOfSpec [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
-    {P : Parameters SPK SSK S C Msg IdC IdK}
-    (privEnc : F → Bytes 32#usize)
-    (e : UAKE.Env (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)) :
-    UAKE.Env (uakeInitiator P msg hasOPK) where
-  clock := e.clock
-  challenge := ⟨Sum.map (ukOfSpec privEnc) id e.challenge.state, e.challenge.transcript⟩
-  challengeDone := e.challengeDone
-  tSessions := e.tSessions.map fun t =>
-    ⟨Sum.map (rpOfSpec privEnc) id t.state, t.transcript, t.key, t.revealed⟩
-
-def crOfSpec [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
-    {P : Parameters SPK SSK S C Msg IdC IdK}
-    (cr : UAKE.ChallengeResult (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)) :
-    UAKE.ChallengeResult (uakeInitiator P msg hasOPK) :=
-  ⟨cr.K0, cr.challengeTr, cr.oracleTrs⟩
-
-private lemma opImpl_toSpec [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
-    {P : Parameters SPK SSK S C Msg IdC IdK}
+private lemma initiator_sim [DecidableEq Msg]
     (hM : ECGroupModel P gen privEnc)
-    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
-    (tk : _root_.PQXDH.RecipientIdentity F ECKey SPK SSK S)
-    (op : UAKE.Op (Message ECKey PQPK CT S C IdC IdK))
-    (e : UAKE.Env (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)) :
-    (UAKE.opImpl (uakeInitiator P msg hasOPK) (tkOfSpec privEnc tk) op).run
-        (envOfSpec gen privEnc e)
-      = Prod.map id (envOfSpec gen privEnc) <$>
-          (UAKE.opImpl (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)
-            tk op).run e := by
-  sorry
+    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal) :
+    Party.Sim (_root_.PQXDH.initiator (specParams P F gen)) (initiator P)
+      (ukOfSpec privEnc) (Sum.map (ukOfSpec privEnc) id) where
+  init_eq := initiator_init_toSpec P gen privEnc
+  step_eq := initiator_step_toSpec P gen privEnc hM hencTotal hkdfTotal
+  output_eq := initiator_output_toSpec P gen privEnc
 
-private lemma challengeSession_toSpec
-    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
-    {P : Parameters SPK SSK S C Msg IdC IdK}
-    (hM : ECGroupModel P gen privEnc)
-    (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
-    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
-    (uk : _root_.PQXDH.InitiatorParameters F ECKey SPK Msg)
-    (tk : _root_.PQXDH.RecipientIdentity F ECKey SPK SSK S) :
-    UAKE.challengeSession A (ukOfSpec privEnc uk) (tkOfSpec privEnc tk)
-      = (fun r => (crOfSpec gen r.1,
-          (r.2.1, envOfSpec gen privEnc r.2.2.1, tkOfSpec privEnc r.2.2.2))) <$>
-          UAKE.challengeSession (A.toSpec gen privEnc) uk tk := by
-  sorry
+private lemma recipient_sim [DecidableEq IdC] [DecidableEq IdK]
+    (hM : ECGroupModel P gen privEnc) (hkdfTotal : DeriveKeysTotal) (hasOPK : Bool) :
+    Party.Sim (_root_.PQXDH.recipient (specParams P F gen) hasOPK) (recipient P hasOPK)
+      (tkOfSpec privEnc) (Sum.map (rpOfSpec privEnc) id) where
+  init_eq := recipient_init_toSpec P gen privEnc hM hasOPK
+  step_eq := recipient_step_toSpec P gen privEnc hM hkdfTotal hasOPK
+  output_eq := recipient_output_toSpec P gen privEnc hasOPK
 
 private lemma exp_toSpec
     [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
@@ -1342,7 +1297,15 @@ private lemma exp_toSpec
     (hencTotal : EncapsTotalAll) (hkdfTotal : DeriveKeysTotal)
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
     UAKE.Exp A = UAKE.Exp (A.toSpec gen privEnc) := by
-  sorry
+  have hsetup : (uakeInitiator P msg hasOPK).setup
+      = Prod.map (ukOfSpec privEnc) (tkOfSpec privEnc) <$>
+        (_root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK).setup :=
+    setup_toSpec P gen privEnc hM msg
+  exact (UAKE.Exp_transport
+    (proto₁ := _root_.PQXDH.uakeInitiator (specParams P F gen) msg hasOPK)
+    (proto₂ := uakeInitiator P msg hasOPK)
+    (initiator_sim P gen privEnc hM hencTotal hkdfTotal)
+    (recipient_sim P gen privEnc hM hkdfTotal hasOPK) rfl hsetup A).trans rfl
 
 private lemma advantage_toSpec
     [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]

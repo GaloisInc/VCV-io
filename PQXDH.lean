@@ -13,6 +13,7 @@ import PQXDH.ToVCVio.CryptoFoundations.AEAD
 import PQXDH.ToVCVio.CryptoFoundations.AKE.UAKE.Defs
 import PQXDH.ToVCVio.CryptoFoundations.AKE.UAKE.Party
 import PQXDH.ToVCVio.CryptoFoundations.AKE.UAKE.Transcript
+import PQXDH.ToVCVio.CryptoFoundations.AKE.UAKE.Transport
 import PQXDH.ToVCVio.CryptoFoundations.HardnessAssumptions.DiffieHellman
 import PQXDH.ToVCVio.CryptoFoundations.SignatureAlg
 import PQXDH.ToVCVio.OracleComp.QueryTracking.Structures
