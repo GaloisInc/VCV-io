@@ -1573,6 +1573,557 @@ def sigForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
       A.toForger uk tk
     return extractForgery guess env.challenge.transcript
 
+def kemForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) : P.sig.unforgeableAdv where
+  main := fun pk => do
+    let ikA ← liftM (dhKeygen P.gen)
+    let ikB ← liftM (dhKeygen P.gen)
+    let spkB ← liftM (dhKeygen P.gen)
+    let spkSigB ← liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+      (Sum.inr (EncodeEC spkB.1)))
+    let uk : InitiatorParameters F G SPK Msg := ⟨ikA, ikB.1, pk, msg⟩
+    let tk : RecipientIdentity F G SPK SSK S := ⟨ikB, (pk, default), spkB, spkSigB⟩
+    let (_, _, env, _) ← UAKE.challengeSession (proto := schemeForger P msg hasOPK)
+      A.toForger uk tk
+    return extractForgery true env.challenge.transcript
+
+def initiatorRealForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) :
+    Party (OracleComp (unifSpec + ((G ⊕ PQPK) →ₒ S)))
+      (InitiatorParameters F G SPK Msg) (Message G PQPK CT S C IdC IdK) (Option K) where
+  State := InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K
+  init := fun p => liftM ((initiator P).init p)
+  step := fun st w => liftM ((initiator P).step st w)
+  output := fun st => liftM ((initiator P).output st)
+
+def schemeRealForger [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    UAKE.Scheme (OracleComp (unifSpec + ((G ⊕ PQPK) →ₒ S))) K
+      (InitiatorParameters F G SPK Msg) (RecipientIdentity F G SPK SSK S)
+      (Message G PQPK CT S C IdC IdK) where
+  rounds := 3
+  setup := liftM (setup P msg)
+  U := initiatorRealForger P
+  T := recipientForger P hasOPK
+
+def _root_.AKE.UAKE.Adversary.toRealForger
+    [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    {P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK} {msg : Msg} {hasOPK : Bool}
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    UAKE.Adversary (schemeRealForger P msg hasOPK) where
+  State := A.State
+  challenge := A.challenge
+  post := A.post
+
+def envRF [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (e : UAKE.Env (schemeRealForger P msg hasOPK)) : UAKE.Env (uakeInitiator P msg hasOPK) :=
+  { clock := e.clock
+    challenge := e.challenge
+    challengeDone := e.challengeDone
+    tSessions := e.tSessions.map fun t => ⟨t.state, t.transcript, t.key, t.revealed⟩ }
+
+def crRF [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (cr : UAKE.ChallengeResult (schemeRealForger P msg hasOPK)) :
+    UAKE.ChallengeResult (uakeInitiator P msg hasOPK) :=
+  { K0 := cr.K0, challengeTr := cr.challengeTr, oracleTrs := cr.oracleTrs }
+
+private lemma fst_run_initiatorRealForger_init [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K]
+    [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : InitiatorParameters F G SPK Msg) (pk : SPK) (sk : SSK) :
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((initiatorRealForger P).init p)).run =
+    (initiator P).init p := by
+  simp only [initiatorRealForger, simulateQ_sigImpl_liftM, fst_run_liftM]
+
+private lemma fst_run_initiatorRealForger_step [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K]
+    [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (st : InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K)
+    (w : Message G PQPK CT S C IdC IdK) (pk : SPK) (sk : SSK) :
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((initiatorRealForger P).step st w)).run =
+    (initiator P).step st w := by
+  simp only [initiatorRealForger, simulateQ_sigImpl_liftM, fst_run_liftM]
+
+private lemma fst_run_initiatorRealForger_output [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K]
+    [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (st : InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K)
+    (pk : SPK) (sk : SSK) :
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((initiatorRealForger P).output st)).run =
+    (initiator P).output st := by
+  simp only [initiatorRealForger, simulateQ_sigImpl_liftM, fst_run_liftM]
+
+private lemma schemeRealForger_T [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    (schemeRealForger P msg hasOPK).T = recipientForger P hasOPK := rfl
+
+private lemma schemeRealForger_U [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    (schemeRealForger P msg hasOPK).U = initiatorRealForger P := rfl
+
+private lemma uakeInitiator_T [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    (uakeInitiator P msg hasOPK).T = recipient P hasOPK := rfl
+
+private lemma uakeInitiator_U [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool) :
+    (uakeInitiator P msg hasOPK).U = initiator P := rfl
+
+def envSigR [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (s2 : SPK × SSK) (e : UAKE.Env (schemeRealForger P msg hasOPK)) :
+    UAKE.Env (schemeRealForger P msg hasOPK) :=
+  { clock := e.clock
+    challenge := e.challenge
+    challengeDone := e.challengeDone
+    tSessions := e.tSessions.map fun t =>
+      ⟨Sum.elim (fun p => Sum.inl { p with sigkB := s2 }) Sum.inr t.state,
+        t.transcript, t.key, t.revealed⟩ }
+
+
+private lemma fst_run_oracleImpl_real [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (pk : SPK) (sk : SSK) (hsig : tk.sigkB = (pk, sk))
+    (op : UAKE.Op (Message G PQPK CT S C IdC IdK)) (s : UAKE.Env (schemeRealForger P msg hasOPK)) :
+    Prod.map id (envRF P msg hasOPK) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((UAKE.opImpl (schemeRealForger P msg hasOPK) tk op).run s)).run) =
+    (UAKE.opImpl (uakeInitiator P msg hasOPK) tk op).run (envRF P msg hasOPK s) := by
+  cases op with
+  | revealT sid =>
+    cases hs : s.tSessions[sid]? <;>
+      simp [UAKE.opImpl, envRF, hs, List.getElem?_map, List.map_set, simulateQ_pure,
+        ]
+  | openT =>
+    simp only [UAKE.opImpl, StateT.run_bind, StateT.run_monadLift, StateT.run_get,
+      StateT.run_set, StateT.run_pure, monadLift_self,
+      bind_assoc, pure_bind, schemeRealForger_T, uakeInitiator_T,
+      simulateQ_bind, simulateQ_pure, WriterT.fst_map_run_bind', WriterT.fst_map_run_pure',
+      fst_run_recipientForger_init _ _ _ _ _ hsig, map_bind, map_pure]
+    refine bind_congr fun r => ?_
+    simp only [
+      Prod.map_apply, id_eq, envRF]
+    cases r <;>
+      exact congrArg pure (Prod.ext (Prod.ext (List.length_map _).symm rfl)
+        (by simp [List.map_append]))
+  | stepT sid w =>
+    simp only [UAKE.opImpl, StateT.run_bind, StateT.run_get,
+
+      pure_bind, schemeRealForger_T, uakeInitiator_T,
+      envRF, List.getElem?_map]
+    cases hs : s.tSessions[sid]? with
+    | none => simp [envRF, Prod.map]
+    | some t =>
+      cases hk : t.key with
+      | some k => simp [hk, envRF, Prod.map]
+      | none =>
+        simp only [hk, Option.map_some, StateT.run_bind, StateT.run_monadLift,
+          monadLift_self,
+          bind_assoc, pure_bind, simulateQ_bind,
+          WriterT.fst_map_run_bind',
+          fst_run_recipientForger_step _ _ _ _ pk sk, map_bind]
+        refine bind_congr fun sr => ?_
+        cases sr with
+        | reject =>
+          simp only [StateT.run_pure, simulateQ_pure, WriterT.fst_map_run_pure', map_pure,
+            Prod.map_apply, id_eq, envRF]
+        | acceptAndSend st' w' done =>
+          cases done with
+          | false =>
+            simp only [reduceCtorEq, reduceIte, StateT.run_bind, StateT.run_set, StateT.run_pure,
+              pure_bind, simulateQ_pure,
+              WriterT.fst_map_run_pure', map_pure]
+            exact congrArg pure (Prod.ext rfl (by simp [List.map_set, envRF]))
+          | true =>
+            simp only [reduceIte, StateT.run_bind, StateT.run_monadLift,
+              StateT.run_set, StateT.run_pure, monadLift_self, bind_assoc, pure_bind,
+              simulateQ_bind, simulateQ_pure, WriterT.fst_map_run_bind',
+              WriterT.fst_map_run_pure', fst_run_recipientForger_output _ _ _ pk sk, map_bind,
+              map_pure]
+            refine bind_congr fun key => ?_
+            exact congrArg pure (Prod.ext rfl (by simp [List.map_set, envRF]))
+        | complete st' =>
+          simp only [StateT.run_bind, StateT.run_monadLift, StateT.run_set, StateT.run_pure,
+            monadLift_self, bind_assoc, pure_bind, simulateQ_bind,
+            simulateQ_pure, WriterT.fst_map_run_bind', WriterT.fst_map_run_pure',
+            fst_run_recipientForger_output _ _ _ pk sk, map_bind, map_pure]
+          refine bind_congr fun key => ?_
+          exact congrArg pure (Prod.ext rfl (by simp [List.map_set, envRF]))
+  | stepChallenge w =>
+    simp only [UAKE.opImpl, StateT.run_bind, StateT.run_get,
+
+      pure_bind, schemeRealForger_U, uakeInitiator_U, envRF]
+    split
+    · simp only [StateT.run_pure, simulateQ_pure, WriterT.fst_map_run_pure', map_pure,
+        Prod.map_apply, id_eq, envRF]
+    · simp only [StateT.run_bind, StateT.run_monadLift,
+        monadLift_self, bind_assoc, pure_bind, simulateQ_bind,
+        WriterT.fst_map_run_bind',
+        fst_run_initiatorRealForger_step _ _ _ pk sk, map_bind]
+      refine bind_congr fun sr => ?_
+      cases sr <;>
+        simp only [StateT.run_bind, StateT.run_set, StateT.run_pure, pure_bind,
+          simulateQ_pure,
+          WriterT.fst_map_run_pure', map_pure, Prod.map_apply, id_eq, envRF] <;> rfl
+
+
+private lemma fst_run_oracleImpl_real_real_sigkB [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (s2 : SPK × SSK) (pk : SPK) (sk : SSK)
+    (op : UAKE.Op (Message G PQPK CT S C IdC IdK)) (s : UAKE.Env (schemeRealForger P msg hasOPK)) :
+    Prod.map id (envSigR P msg hasOPK s2) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((UAKE.opImpl (schemeRealForger P msg hasOPK) tk op).run s)).run) =
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((UAKE.opImpl (schemeRealForger P msg hasOPK) ⟨tk.ikB, s2, tk.spkB, tk.spkSigB⟩ op).run
+          (envSigR P msg hasOPK s2 s))).run := by
+  cases op with
+  | revealT sid =>
+    cases hs : s.tSessions[sid]? <;>
+      simp [UAKE.opImpl, envSigR, hs, List.getElem?_map, List.map_set, simulateQ_pure]
+  | openT =>
+    simp only [UAKE.opImpl, StateT.run_bind, StateT.run_monadLift, StateT.run_get,
+      StateT.run_set, StateT.run_pure, monadLift_self,
+      bind_assoc, pure_bind, schemeRealForger_T, recipientForger,
+      simulateQ_bind, simulateQ_pure, simulateQ_sigImpl_liftM, simulateQ_publishForger,
+      WriterT.fst_map_run_bind', WriterT.fst_map_run_pure', fst_run_liftM, fst_run_signingOracle,
+      map_bind, map_pure]
+    refine bind_congr fun opkB => bind_congr fun pqpkB =>
+      bind_congr fun pqpkSigB => ?_
+    exact congrArg pure (Prod.ext (Prod.ext (by simp [envSigR, List.length_map]) rfl)
+      (by simp [envSigR, List.map_append]))
+  | stepT sid w =>
+    simp only [UAKE.opImpl, StateT.run_bind, StateT.run_get,
+
+      pure_bind, schemeRealForger_T, envSigR, List.getElem?_map]
+    cases hs : s.tSessions[sid]? with
+    | none =>
+      simp only [Option.map_none, StateT.run_pure, simulateQ_pure, WriterT.fst_map_run_pure',
+        map_pure, Prod.map_apply, id_eq, envSigR]
+      rfl
+    | some t =>
+      cases hk : t.key with
+      | some k =>
+        simp only [hk, Option.map_some, StateT.run_pure, simulateQ_pure,
+          WriterT.fst_map_run_pure', map_pure, Prod.map_apply, id_eq, envSigR]
+        rfl
+      | none =>
+        simp only [hk, Option.map_some, StateT.run_bind, StateT.run_monadLift, monadLift_self,
+          bind_assoc, pure_bind, simulateQ_bind, WriterT.fst_map_run_bind',
+          fst_run_recipientForger_step _ _ _ _ pk sk, map_bind]
+        cases hst : t.state with
+        | inr kk => cases w <;> rfl
+        | inl p =>
+          cases w with
+          | bundle b => rfl
+          | confirmation c => rfl
+          | initial im =>
+            have halign := recipient_step_sigkB_irrel P hasOPK (Sum.inl p) s2 (Message.initial im)
+            refine Eq.trans ?_ (congrArg (· >>= _) halign.symm)
+            beta_reduce
+            refine bind_congr_of_forall_mem_support _ fun a ha => ?_
+            simp only [recipient] at ha
+            obtain ⟨r, hr, ha⟩ := (mem_support_bind_iff _ _ _).1 ha
+            cases r with
+            | none =>
+              obtain rfl := (mem_support_pure_iff' _ _).1 ha
+              rfl
+            | some ctx =>
+              obtain ⟨conf, hconf, ha⟩ := (mem_support_bind_iff _ _ _).1 ha
+              obtain rfl := (mem_support_pure_iff' _ _).1 ha
+              simp only [reduceIte, StateT.run_bind, StateT.run_monadLift,
+                StateT.run_set, StateT.run_pure, monadLift_self, bind_assoc,
+                pure_bind, simulateQ_bind, simulateQ_pure,
+                WriterT.fst_map_run_bind', WriterT.fst_map_run_pure',
+                fst_run_recipientForger_output _ _ _ pk sk, map_bind, map_pure]
+              refine bind_congr fun key => ?_
+              refine congrArg pure (Prod.ext rfl ?_)
+              simp only [Prod.map_snd, envSigR, List.map_set, Sum.elim_inr]
+              rfl
+  | stepChallenge w =>
+    simp only [UAKE.opImpl, StateT.run_bind, StateT.run_get,
+
+      pure_bind, schemeRealForger_U, envSigR]
+    split
+    · simp only [StateT.run_pure, simulateQ_pure, WriterT.fst_map_run_pure', map_pure,
+        Prod.map_apply, id_eq, envSigR]
+    · simp only [StateT.run_bind, StateT.run_monadLift,
+        monadLift_self, bind_assoc, pure_bind, simulateQ_bind,
+        WriterT.fst_map_run_bind',
+        fst_run_initiatorRealForger_step _ _ _ pk sk, map_bind]
+      refine bind_congr fun sr => ?_
+      cases sr <;>
+        simp only [StateT.run_bind, StateT.run_set, StateT.run_pure, pure_bind,
+          simulateQ_pure,
+          WriterT.fst_map_run_pure', map_pure, Prod.map_apply, id_eq, envSigR]
+
+
+private lemma fst_run_withUnif_query_real_real_sigkB [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (s2 : SPK × SSK) (pk : SPK) (sk : SSK)
+    (q : (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)).Domain)
+    (s : UAKE.Env (schemeRealForger P msg hasOPK)) :
+    Prod.map id (envSigR P msg hasOPK s2) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((UAKE.oracleImpl (schemeRealForger P msg hasOPK) tk q).run s)).run) =
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((UAKE.oracleImpl (schemeRealForger P msg hasOPK) ⟨tk.ikB, s2, tk.spkB, tk.spkSigB⟩ q).run
+          (envSigR P msg hasOPK s2 s))).run := by
+  cases q with
+  | inr op =>
+    simp only [UAKE.oracleImpl, QueryImpl.add_apply_inr]
+    exact fst_run_oracleImpl_real_real_sigkB P msg hasOPK tk s2 pk sk op s
+  | inl u =>
+    simp [UAKE.oracleImpl, QueryImpl.add_apply_inl, QueryImpl.liftTarget_apply,
+      HasQuery.toQueryImpl_apply, StateT.run_monadLift, simulateQ_map, simulateQ_sigImpl_liftM,
+      Functor.map_map, envSigR]
+
+private lemma fst_run_withUnif_oracleImpl_real_sigkB [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (s2 : SPK × SSK) (pk : SPK) (sk : SSK)
+    {X : Type}
+    (oa : OracleComp (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)) X)
+    (s : UAKE.Env (schemeRealForger P msg hasOPK)) :
+    Prod.map id (envSigR P msg hasOPK s2) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((simulateQ (UAKE.oracleImpl (schemeRealForger P msg hasOPK) tk) oa).run s)).run) =
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((simulateQ (UAKE.oracleImpl (schemeRealForger P msg hasOPK)
+          ⟨tk.ikB, s2, tk.spkB, tk.spkSigB⟩) oa).run (envSigR P msg hasOPK s2 s))).run := by
+  induction oa using OracleComp.inductionOn generalizing s with
+  | pure x =>
+    simp only [simulateQ_pure, StateT.run_pure, WriterT.fst_map_run_pure', map_pure,
+      Prod.map_apply, id_eq]
+  | query_bind q oa ih =>
+    simp only [simulateQ_bind, simulateQ_query, OracleQuery.input_query, OracleQuery.cont_query,
+      id_map, StateT.run_bind, WriterT.fst_map_run_bind', map_bind, ih]
+    rw [← fst_run_withUnif_query_real_real_sigkB P msg hasOPK tk s2 pk sk q s]
+    simp only [bind_map_left, Prod.map_fst, Prod.map_snd, id_eq]
+
+
+private lemma fst_run_withUnif_query_real [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (pk : SPK) (sk : SSK) (hsig : tk.sigkB = (pk, sk))
+    (q : (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)).Domain)
+    (s : UAKE.Env (schemeRealForger P msg hasOPK)) :
+    Prod.map id (envRF P msg hasOPK) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((UAKE.oracleImpl (schemeRealForger P msg hasOPK) tk q).run s)).run) =
+    (UAKE.oracleImpl (uakeInitiator P msg hasOPK) tk q).run
+      (envRF P msg hasOPK s) := by
+  cases q with
+  | inr op =>
+    simp only [UAKE.oracleImpl, QueryImpl.add_apply_inr]
+    exact fst_run_oracleImpl_real P msg hasOPK tk pk sk hsig op s
+  | inl u =>
+    simp [UAKE.oracleImpl, QueryImpl.add_apply_inl, QueryImpl.liftTarget_apply,
+      HasQuery.toQueryImpl_apply, StateT.run_monadLift, simulateQ_map, simulateQ_sigImpl_liftM,
+      Functor.map_map, envRF]
+
+
+private lemma fst_run_withUnif_oracleImpl_real [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (pk : SPK) (sk : SSK) (hsig : tk.sigkB = (pk, sk))
+    {X : Type}
+    (oa : OracleComp (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)) X)
+    (s : UAKE.Env (schemeRealForger P msg hasOPK)) :
+    Prod.map id (envRF P msg hasOPK) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((simulateQ (UAKE.oracleImpl (schemeRealForger P msg hasOPK) tk) oa).run s)).run) =
+    (simulateQ (UAKE.oracleImpl (uakeInitiator P msg hasOPK) tk) oa).run
+      (envRF P msg hasOPK s) := by
+  induction oa using OracleComp.inductionOn generalizing s with
+  | pure x =>
+    simp only [simulateQ_pure, StateT.run_pure, WriterT.fst_map_run_pure', map_pure,
+      Prod.map_apply, id_eq]
+  | query_bind q oa ih =>
+    simp only [simulateQ_bind, simulateQ_query, OracleQuery.input_query, OracleQuery.cont_query,
+      id_map, StateT.run_bind, WriterT.fst_map_run_bind', map_bind, ih]
+    rw [← fst_run_withUnif_query_real P msg hasOPK tk pk sk hsig q s]
+    simp only [bind_map_left, Prod.map_fst, Prod.map_snd, id_eq]
+
+
+private lemma fst_run_withUnif_init_real [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (pk : SPK) (sk : SSK) (hsig : tk.sigkB = (pk, sk))
+    {X : Type}
+    (oa : OracleComp (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)) X)
+    (c : ℕ) (st : InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K)
+    (tr : Transcript (Message G PQPK CT S C IdC IdK)) :
+    Prod.map id (envRF P msg hasOPK) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((simulateQ (UAKE.oracleImpl (schemeRealForger P msg hasOPK) tk) oa).run
+          ⟨c, ⟨st, tr⟩, false, []⟩)).run) =
+    (simulateQ (UAKE.oracleImpl (uakeInitiator P msg hasOPK) tk) oa).run
+      ⟨c, ⟨st, tr⟩, false, []⟩ := by
+  have h := fst_run_withUnif_oracleImpl_real P msg hasOPK tk pk sk hsig oa
+    (⟨c, ⟨st, tr⟩, false, []⟩ : UAKE.Env (schemeRealForger P msg hasOPK))
+  simpa [envRF] using h
+
+
+private lemma fst_run_challengeSession_real [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (uk : InitiatorParameters F G SPK Msg) (tk : RecipientIdentity F G SPK SSK S)
+    (pk : SPK) (sk : SSK) (hsig : tk.sigkB = (pk, sk))
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    (fun r => (crRF P msg hasOPK r.1,
+        (r.2.1, envRF P msg hasOPK r.2.2.1, r.2.2.2))) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (UAKE.challengeSession (proto := schemeRealForger P msg hasOPK) A.toRealForger uk tk)).run) =
+    UAKE.challengeSession (proto := uakeInitiator P msg hasOPK) A uk tk := by
+  unfold UAKE.challengeSession
+  simp only [schemeRealForger_U, uakeInitiator_U, AKE.UAKE.Adversary.toRealForger,
+    simulateQ_bind, simulateQ_pure,
+    WriterT.fst_map_run_bind', WriterT.fst_map_run_pure', map_bind, map_pure,
+    fst_run_initiatorRealForger_init _ _ pk sk]
+  refine bind_congr fun u0 => ?_
+  have h := fst_run_withUnif_init_real P msg hasOPK tk pk sk hsig (A.challenge uk u0.opening)
+    (recordOpt (⟨[]⟩ : Transcript (Message G PQPK CT S C IdC IdK)) u0.opening 0).2 u0.state
+    (recordOpt (⟨[]⟩ : Transcript (Message G PQPK CT S C IdC IdK)) u0.opening 0).1
+  refine Eq.trans ?_ (congrArg (· >>= _) h)
+  beta_reduce
+  conv_rhs => rw [bind_map_left]
+  refine bind_congr fun a => ?_
+  simp only [Prod.map_fst, Prod.map_snd, id_eq, envRF, List.map_map, Function.comp_def, crRF,
+    fst_run_initiatorRealForger_output _ _ pk sk]
+
+
+private lemma fst_run_withUnif_init_real_real_sigkB [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (s2 : SPK × SSK) (pk : SPK) (sk : SSK)
+    {X : Type}
+    (oa : OracleComp (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)) X)
+    (c : ℕ) (st : InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K)
+    (tr : Transcript (Message G PQPK CT S C IdC IdK)) :
+    Prod.map id (envSigR P msg hasOPK s2) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((simulateQ (UAKE.oracleImpl (schemeRealForger P msg hasOPK) tk) oa).run
+          ⟨c, ⟨st, tr⟩, false, []⟩)).run) =
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        ((simulateQ (UAKE.oracleImpl (schemeRealForger P msg hasOPK)
+          ⟨tk.ikB, s2, tk.spkB, tk.spkSigB⟩) oa).run ⟨c, ⟨st, tr⟩, false, []⟩)).run := by
+  have h := fst_run_withUnif_oracleImpl_real_sigkB P msg hasOPK tk s2 pk sk oa
+    (⟨c, ⟨st, tr⟩, false, []⟩ : UAKE.Env (schemeRealForger P msg hasOPK))
+  simpa [envSigR] using h
+
+
+private lemma fst_run_challengeSession_real_real_sigkB [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (uk : InitiatorParameters F G SPK Msg) (tk : RecipientIdentity F G SPK SSK S)
+    (s2 : SPK × SSK) (pk : SPK) (sk : SSK)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    (fun r => (r.1, (r.2.1, envSigR P msg hasOPK s2 r.2.2.1,
+        (⟨tk.ikB, s2, tk.spkB, tk.spkSigB⟩ : RecipientIdentity F G SPK SSK S)))) <$>
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (UAKE.challengeSession (proto := schemeRealForger P msg hasOPK) A.toRealForger uk tk)).run) =
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (UAKE.challengeSession (proto := schemeRealForger P msg hasOPK) A.toRealForger uk
+          ⟨tk.ikB, s2, tk.spkB, tk.spkSigB⟩)).run := by
+  unfold UAKE.challengeSession
+  simp only [schemeRealForger_U, AKE.UAKE.Adversary.toRealForger, simulateQ_bind, simulateQ_pure,
+    WriterT.fst_map_run_bind', WriterT.fst_map_run_pure', map_bind, map_pure]
+  refine bind_congr fun u0 => ?_
+  have h := fst_run_withUnif_init_real_real_sigkB P msg hasOPK tk s2 pk sk (A.challenge uk u0.opening)
+    (recordOpt (⟨[]⟩ : Transcript (Message G PQPK CT S C IdC IdK)) u0.opening 0).2 u0.state
+    (recordOpt (⟨[]⟩ : Transcript (Message G PQPK CT S C IdC IdK)) u0.opening 0).1
+  refine Eq.trans ?_ (congrArg (· >>= _) h)
+  beta_reduce
+  conv_rhs => rw [bind_map_left]
+  refine bind_congr fun a => ?_
+  simp only [Prod.map_fst, Prod.map_snd, id_eq, envSigR, List.map_map, Function.comp_def,
+    fst_run_initiatorRealForger_output _ _ pk sk]
+
+def kemForgerReal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) : P.sig.unforgeableAdv where
+  main := fun pk => do
+    let ikA ← liftM (dhKeygen P.gen)
+    let ikB ← liftM (dhKeygen P.gen)
+    let spkB ← liftM (dhKeygen P.gen)
+    let spkSigB ← liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+      (Sum.inr (EncodeEC spkB.1)))
+    let uk : InitiatorParameters F G SPK Msg := ⟨ikA, ikB.1, pk, msg⟩
+    let tk : RecipientIdentity F G SPK SSK S := ⟨ikB, (pk, default), spkB, spkSigB⟩
+    let (_, _, env, _) ← UAKE.challengeSession (proto := schemeRealForger P msg hasOPK)
+      A.toRealForger uk tk
+    return extractForgery true env.challenge.transcript
+
 end SignatureReduction
 
 section AeadReduction
@@ -3232,6 +3783,74 @@ private lemma sigForger_strongAdvantage_eq [Field F] [AddCommGroup G] [Module F 
   congr 1
   congr 1 <;> subsingleton
 
+private lemma kemForger_strongAdvantage_eq [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq S]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    ((kemForger P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp) =
+    Pr[= true | do
+      let pksk ← P.sig.keygen
+      let ikA ← dhKeygen P.gen
+      let ikB ← dhKeygen P.gen
+      let spkB ← dhKeygen P.gen
+      let cl ← (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec)
+          (m := ProbComp)).liftTarget (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp)
+          + P.sig.signingOracle pksk.1 pksk.2)
+        (liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+            (Sum.inr (EncodeEC spkB.1))) >>= fun spkSigB =>
+          UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger
+            ⟨ikA, ikB.1, pksk.1, msg⟩ ⟨ikB, (pksk.1, default), spkB, spkSigB⟩)).run
+      let fs := extractForgery true cl.1.2.2.1.challenge.transcript
+      let verified ← P.sig.verify pksk.1 fs.1 fs.2
+      pure (!cl.2.wasQueriedWith fs.1 fs.2 && verified)] := by
+  unfold SignatureAlg.unforgeableAdv.strongAdvantage SignatureAlg.stronglyUnforgeableExp
+  rw [probOutput_probComp_evalDist]
+  simp only [kemForger, run_sim_liftM_bind, run_sim_queryBind_pure, bind_assoc, pure_bind]
+  refine congrArg (fun c => probOutput c true) ?_
+  refine bind_congr fun a => bind_congr fun b => bind_congr fun c => bind_congr fun d =>
+    bind_congr fun f => bind_congr fun g => ?_
+  congr 1
+  refine congrArg (fun q => !q && g) ?_
+  congr 1
+  congr 1 <;> subsingleton
+
+private lemma kemForgerReal_strongAdvantage_eq [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq S]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    ((kemForgerReal P msg hasOPK A).strongAdvantage ProbCompRuntime.probComp) =
+    Pr[= true | do
+      let pksk ← P.sig.keygen
+      let ikA ← dhKeygen P.gen
+      let ikB ← dhKeygen P.gen
+      let spkB ← dhKeygen P.gen
+      let cl ← (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec)
+          (m := ProbComp)).liftTarget (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp)
+          + P.sig.signingOracle pksk.1 pksk.2)
+        (liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+            (Sum.inr (EncodeEC spkB.1))) >>= fun spkSigB =>
+          UAKE.challengeSession (proto := schemeRealForger P msg hasOPK) A.toRealForger
+            ⟨ikA, ikB.1, pksk.1, msg⟩ ⟨ikB, (pksk.1, default), spkB, spkSigB⟩)).run
+      let fs := extractForgery true cl.1.2.2.1.challenge.transcript
+      let verified ← P.sig.verify pksk.1 fs.1 fs.2
+      pure (!cl.2.wasQueriedWith fs.1 fs.2 && verified)] := by
+  unfold SignatureAlg.unforgeableAdv.strongAdvantage SignatureAlg.stronglyUnforgeableExp
+  rw [probOutput_probComp_evalDist]
+  simp only [kemForgerReal, run_sim_liftM_bind, run_sim_queryBind_pure, bind_assoc, pure_bind]
+  refine congrArg (fun c => probOutput c true) ?_
+  refine bind_congr fun a => bind_congr fun b => bind_congr fun c => bind_congr fun d =>
+    bind_congr fun f => bind_congr fun g => ?_
+  congr 1
+  refine congrArg (fun q => !q && g) ?_
+  congr 1
+  congr 1 <;> subsingleton
+
 private def ChallengeBundlesVerify [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [SampleableType K] [Fintype K] [Inhabited K]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
@@ -3481,6 +4100,270 @@ private lemma challengeBundlesVerify_run [Field F] [AddCommGroup G] [Module F G]
     obtain ⟨pr, hpr, hr⟩ := (mem_support_bind_iff _ _ _).1 hmem
     exact ih pr.1 pr.2 renv
       (challengeBundlesVerify_withUnif_query P msg hasOPK uk tk q env0 hinv hpr) hr
+
+private lemma initiate_verify_of_accept [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq G] [SampleableType K] [Fintype K] [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : InitiatorParameters F G SPK Msg) (bundle : PreKeyBundle G PQPK S IdC IdK)
+    {r : InitialMessage G CT C IdC IdK × SessionContext G PQPK Msg K}
+    (hr : some r ∈ support (initiate P p bundle)) :
+    true ∈ support (P.sig.verify p.sigpkB (EncodeEC bundle.spkB.1) bundle.spkSigB) ∧
+      true ∈ support (P.sig.verify p.sigpkB (EncodeKEM bundle.pqpkB.1) bundle.pqpkSigB) := by
+  simp only [initiate] at hr
+  split at hr
+  · simp at hr
+  · rw [mem_support_bind_iff] at hr
+    obtain ⟨_, _, hr⟩ := hr
+    rw [mem_support_bind_iff] at hr
+    obtain ⟨okSPK, hSPK, hr⟩ := hr
+    rw [mem_support_bind_iff] at hr
+    obtain ⟨okPQPK, hPQPK, hr⟩ := hr
+    split at hr
+    · simp at hr
+    · rename_i hcond
+      cases okSPK <;> cases okPQPK <;> simp_all
+
+private lemma initiator_step_accept_bundle [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K]
+    [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (state : InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K)
+    (w w' : Message G PQPK CT S C IdC IdK)
+    (st' : InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K) (done : Bool)
+    (hsr : Party.StepResult.acceptAndSend st' w' done ∈ support ((initiator P).step state w)) :
+    ∃ p b im ctx, state = Sum.inl p ∧ w = Message.bundle b ∧ w' = Message.initial im ∧
+      st' = Sum.inr (Sum.inl ctx) ∧ some (im, ctx) ∈ support (initiate P p b) := by
+  cases state with
+  | inl p =>
+    cases w with
+    | bundle b =>
+      simp only [initiator] at hsr
+      obtain ⟨r, hr, hsr⟩ := (mem_support_bind_iff _ _ _).1 hsr
+      cases r with
+      | none => exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+      | some imctx =>
+        obtain ⟨im, ctx⟩ := imctx
+        have heq := (mem_support_pure_iff' _ _).1 hsr
+        injection heq with h1 h2 h3
+        subst h1; subst h2
+        exact ⟨p, b, im, ctx, rfl, rfl, rfl, rfl, hr⟩
+    | initial im =>
+      simp only [initiator] at hsr
+      exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+    | confirmation c =>
+      simp only [initiator] at hsr
+      exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+  | inr rest =>
+    cases rest with
+    | inl ctx =>
+      cases w with
+      | bundle b =>
+        simp only [initiator] at hsr
+        exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+      | initial im =>
+        simp only [initiator] at hsr
+        exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+      | confirmation conf =>
+        simp only [initiator] at hsr
+        cases hcf : confirm P ctx conf with
+        | none => rw [hcf] at hsr; exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+        | some SK => rw [hcf] at hsr; exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+    | inr SK =>
+      cases w <;>
+        (simp only [initiator] at hsr
+         exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp))
+
+
+private lemma initiator_step_complete_conf [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F] [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K]
+    [Inhabited K]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (state : InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K)
+    (w : Message G PQPK CT S C IdC IdK)
+    (st' : InitiatorParameters F G SPK Msg ⊕ SessionContext G PQPK Msg K ⊕ K)
+    (hsr : Party.StepResult.complete st' ∈ support ((initiator P).step state w)) :
+    ∃ ctx conf SK, state = Sum.inr (Sum.inl ctx) ∧ w = Message.confirmation conf ∧
+      st' = Sum.inr (Sum.inr SK) := by
+  cases state with
+  | inl p =>
+    cases w with
+    | bundle b =>
+      simp only [initiator] at hsr
+      obtain ⟨r, -, hsr⟩ := (mem_support_bind_iff _ _ _).1 hsr
+      cases r with
+      | none => exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+      | some imctx =>
+        obtain ⟨im, ctx⟩ := imctx
+        exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+    | initial im =>
+      simp only [initiator] at hsr
+      exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+    | confirmation c =>
+      simp only [initiator] at hsr
+      exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+  | inr rest =>
+    cases rest with
+    | inl ctx =>
+      cases w with
+      | bundle b =>
+        simp only [initiator] at hsr
+        exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+      | initial im =>
+        simp only [initiator] at hsr
+        exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+      | confirmation conf =>
+        simp only [initiator] at hsr
+        cases hcf : confirm P ctx conf with
+        | none => rw [hcf] at hsr; exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp)
+        | some SK =>
+          rw [hcf] at hsr
+          have heq := (mem_support_pure_iff' _ _).1 hsr
+          injection heq with h1
+          exact ⟨ctx, conf, SK, rfl, rfl, h1.symm⟩
+    | inr SK =>
+      cases w <;>
+        (simp only [initiator] at hsr
+         exact absurd ((mem_support_pure_iff' _ _).1 hsr) (by simp))
+
+
+private lemma challengeBundlesVerify_withUnif_query_real [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (uk : InitiatorParameters F G SPK Msg) (tk : RecipientIdentity F G SPK SSK S)
+    (q : (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)).Domain)
+    (env0 : UAKE.Env (uakeInitiator P msg hasOPK))
+    {renv : _ × UAKE.Env (uakeInitiator P msg hasOPK)}
+    (hinv : ChallengeBundlesVerify P uk env0.challenge)
+    (hmem : renv ∈ support
+      ((UAKE.oracleImpl (uakeInitiator P msg hasOPK) tk q).run env0)) :
+    ChallengeBundlesVerify P uk renv.2.challenge := by
+  cases q with
+  | inl u =>
+    have hch : renv.2 = env0 := by
+      simp only [UAKE.oracleImpl, QueryImpl.add_apply_inl, QueryImpl.liftTarget_apply,
+        HasQuery.toQueryImpl_apply] at hmem
+      erw [StateT.run_liftM] at hmem
+      obtain ⟨a, -, hr⟩ := (mem_support_bind_iff _ _ _).1 hmem
+      obtain rfl := (mem_support_pure_iff' _ _).1 hr
+      rfl
+    rw [hch]; exact hinv
+  | inr op =>
+    simp only [UAKE.oracleImpl, QueryImpl.add_apply_inr] at hmem
+    cases op with
+    | openT =>
+      have hch : renv.2.challenge = env0.challenge := by
+        simp only [UAKE.opImpl, uakeInitiator_T] at hmem
+        simp at hmem
+        obtain ⟨r, -, hr⟩ := hmem
+        simp at hr; subst hr; rfl
+      rw [hch]; exact hinv
+    | stepT sid w =>
+      have hch : renv.2.challenge = env0.challenge := by
+        simp only [UAKE.opImpl, uakeInitiator_T] at hmem
+        cases hs : env0.tSessions[sid]? with
+        | none => simp [hs] at hmem; subst hmem; rfl
+        | some t =>
+          cases hk : t.key with
+          | some v => simp [hs, hk] at hmem; subst hmem; rfl
+          | none =>
+            simp [hs, hk] at hmem
+            obtain ⟨sr, -, hr⟩ := Set.mem_iUnion₂.1 hmem
+            cases sr with
+            | reject => simp at hr; subst hr; rfl
+            | acceptAndSend st' w' done =>
+              cases done with
+              | false => simp at hr; subst hr; rfl
+              | true =>
+                obtain ⟨y, -, hr2⟩ := (mem_support_bind_iff _ _ _).1 hr
+                simp at hr2; subst hr2; rfl
+            | complete st' =>
+              obtain ⟨key, -, hr2⟩ := (mem_support_bind_iff _ _ _).1 hr
+              simp at hr2; subst hr2; rfl
+      rw [hch]; exact hinv
+    | revealT sid =>
+      have hch : renv.2.challenge = env0.challenge := by
+        simp only [UAKE.opImpl] at hmem
+        cases hs : env0.tSessions[sid]? with
+        | none => simp [hs] at hmem; subst hmem; rfl
+        | some t => simp [hs] at hmem; subst hmem; rfl
+      rw [hch]; exact hinv
+    | stepChallenge w =>
+      simp only [UAKE.opImpl, uakeInitiator_U] at hmem
+      by_cases hdone : env0.challengeDone = true
+      · simp [hdone] at hmem; subst hmem; exact hinv
+      · simp [hdone] at hmem
+        obtain ⟨ha, hb, hc⟩ := hinv
+        obtain ⟨sr, hsr, hr⟩ := Set.mem_iUnion₂.1 hmem
+        cases sr with
+        | reject =>
+          obtain rfl := (mem_support_pure_iff' _ _).1 hr
+          exact ⟨ha, hb, hc⟩
+        | acceptAndSend st' w' done =>
+          obtain ⟨p, b, im, ctx, hstate, hwb, hw', hst', hinit⟩ :=
+            initiator_step_accept_bundle P _ w w' st' done hsr
+          have hp : p = uk := ha p hstate
+          subst hp
+          have hver := initiate_verify_of_accept P p b hinit
+          subst hwb; subst hw'; subst hst'
+          simp at hr
+          subst hr
+          refine ⟨?_, ?_, ?_⟩
+          · intro q hq; exact absurd hq (by simp)
+          · intro e he bb hbb
+            simp only [recordOne, List.mem_append, List.mem_singleton] at he
+            rcases he with (he | he) | he
+            · exact hb e he bb hbb
+            · subst he; simp only [Message.bundle.injEq] at hbb; subst hbb; exact hver
+            · subst he; simp at hbb
+          · intro _
+            exact ⟨(Message.bundle b, env0.clock), by simp [recordOne], b, rfl⟩
+        | complete st' =>
+          obtain ⟨ctx, conf, SK, hstate, hwc, hst'⟩ :=
+            initiator_step_complete_conf P _ w st' hsr
+          simp at hr
+          subst hr
+          refine ⟨?_, ?_, ?_⟩
+          · intro q hq; rw [hst'] at hq; exact absurd hq (by simp)
+          · intro e he bb hbb
+            simp only [recordOne, List.mem_append, List.mem_singleton] at he
+            rcases he with he | he
+            · exact hb e he bb hbb
+            · subst he; rw [hwc] at hbb; simp at hbb
+          · intro _
+            obtain ⟨e, he, bb, hbb⟩ := hc (by rw [hstate]; intro q; simp)
+            exact ⟨e, by simp only [recordOne, List.mem_append]; exact Or.inl he, bb, hbb⟩
+
+
+private lemma challengeBundlesVerify_run_real [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (uk : InitiatorParameters F G SPK Msg) (tk : RecipientIdentity F G SPK SSK S)
+    {X : Type}
+    (oa : OracleComp (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)) X) :
+    ∀ (env0 : UAKE.Env (uakeInitiator P msg hasOPK))
+      (renv : X × UAKE.Env (uakeInitiator P msg hasOPK)),
+      ChallengeBundlesVerify P uk env0.challenge →
+      renv ∈ support
+        ((simulateQ (UAKE.oracleImpl (uakeInitiator P msg hasOPK) tk) oa).run
+          env0) →
+      ChallengeBundlesVerify P uk renv.2.challenge := by
+  induction oa using OracleComp.inductionOn with
+  | pure x =>
+    intro env0 renv hinv hmem
+    simp only [simulateQ_pure, StateT.run_pure, support_pure, Set.mem_singleton_iff] at hmem
+    subst hmem; exact hinv
+  | query_bind q oa' ih =>
+    intro env0 renv hinv hmem
+    simp only [simulateQ_bind, simulateQ_query, OracleQuery.input_query, OracleQuery.cont_query,
+      id_map, StateT.run_bind] at hmem
+    obtain ⟨pr, hpr, hr⟩ := (mem_support_bind_iff _ _ _).1 hmem
+    exact ih pr.1 pr.2 renv
+      (challengeBundlesVerify_withUnif_query_real P msg hasOPK uk tk q env0 hinv hpr) hr
+
 
 private lemma oracleImpl_challengeDone_true [Field F] [AddCommGroup G] [Module F G]
     [SampleableType F]
@@ -3926,6 +4809,146 @@ private lemma schemeForger_K0_bundle_default [Field F] [AddCommGroup G] [Module 
   rw [hclr_eq] at hres
   simpa [envSig] using hres
 
+private lemma uakeIdeal_bundle_verified [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (guess : Bool) (uk : InitiatorParameters F G SPK Msg)
+    (tk : RecipientIdentity F G SPK SSK S)
+    (A : UAKE.Adversary (uakeInitiatorIdeal P msg hasOPK))
+    (v : UAKE.ChallengeResult (uakeInitiatorIdeal P msg hasOPK) ×
+      (A.State × UAKE.Env (uakeInitiatorIdeal P msg hasOPK) × RecipientIdentity F G SPK SSK S))
+    (hv : v ∈ support (UAKE.challengeSession (proto := uakeInitiatorIdeal P msg hasOPK) A uk tk))
+    (hex : ∃ e ∈ v.2.2.1.challenge.transcript.entries, ∃ b, e.1 = Message.bundle b) :
+    true ∈ support (P.sig.verify uk.sigpkB
+      (extractForgery guess v.2.2.1.challenge.transcript).1
+      (extractForgery guess v.2.2.1.challenge.transcript).2) := by
+  unfold UAKE.challengeSession at hv
+  obtain ⟨u0, hu0, hv⟩ := (mem_support_bind_iff _ _ _).1 hv
+  simp only [uakeInitiatorIdeal_U, initiatorIdeal] at hu0
+  obtain rfl := (mem_support_pure_iff' _ _).1 hu0
+  simp only [Party.InitResult.opening, Party.InitResult.state, recordOpt] at hv
+  obtain ⟨⟨st, env⟩, hrun, hv⟩ := (mem_support_bind_iff _ _ _).1 hv
+  obtain ⟨k0, hk0, hv⟩ := (mem_support_bind_iff _ _ _).1 hv
+  obtain rfl := (mem_support_pure_iff' _ _).1 hv
+  have hinit : ChallengeBundlesVerify P uk
+      (⟨Sum.inl uk, ⟨[]⟩⟩ : Session (InitiatorParameters F G SPK Msg ⊕
+        SessionContext G PQPK Msg K ⊕ K) (Message G PQPK CT S C IdC IdK)) := by
+    refine ⟨?_, ?_, ?_⟩
+    · intro p hp; injection hp with h; exact h.symm
+    · intro e he; simp at he
+    · intro hcon; exact absurd rfl (hcon uk)
+  obtain ⟨ha, hb, hc⟩ := challengeBundlesVerify_run P msg hasOPK uk tk (A.challenge uk none)
+    ⟨0, ⟨Sum.inl uk, ⟨[]⟩⟩, false, []⟩ (st, env) hinit hrun
+  exact extractForgery_verify P guess uk env.challenge.transcript hb hex
+
+private lemma schemeForger_bundle_verified [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (guess : Bool) (uk : InitiatorParameters F G SPK Msg)
+    (tk : RecipientIdentity F G SPK SSK S) (pk : SPK) (sk : SSK) (hsig : tk.sigkB = (pk, sk))
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (cl : (UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SPK SSK S)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S))
+    (hcl : cl ∈ support
+      ((simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger uk tk)).run))
+    (hex : ∃ e ∈ cl.1.2.2.1.challenge.transcript.entries, ∃ b, e.1 = Message.bundle b) :
+    true ∈ support (P.sig.verify uk.sigpkB
+      (extractForgery guess cl.1.2.2.1.challenge.transcript).1
+      (extractForgery guess cl.1.2.2.1.challenge.transcript).2) := by
+  have hmem2 : (crFI P msg hasOPK cl.1.1,
+      (cl.1.2.1, envFI P msg hasOPK cl.1.2.2.1, cl.1.2.2.2)) ∈
+      support (UAKE.challengeSession (proto := uakeInitiatorIdeal P msg hasOPK)
+        A.toIdeal uk tk) := by
+    rw [← fst_run_challengeSession P msg hasOPK uk tk pk sk hsig A]
+    refine (support_map _ _).ge ?_
+    refine Set.mem_image_of_mem _ ((support_map _ _).ge ?_)
+    exact Set.mem_image_of_mem _ hcl
+  have hres := uakeIdeal_bundle_verified P msg hasOPK guess uk tk A.toIdeal _ hmem2 hex
+  simpa [envFI] using hres
+
+private lemma schemeForger_bundle_verified_default [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (guess : Bool) (uk : InitiatorParameters F G SPK Msg)
+    (tk : RecipientIdentity F G SPK SSK S) (pk : SPK) (sk : SSK)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (cl : UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+      (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SPK SSK S))
+    (hcl : cl ∈ support
+      (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec)
+          (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger uk tk)).run))
+    (hex : ∃ e ∈ cl.2.2.1.challenge.transcript.entries, ∃ b, e.1 = Message.bundle b) :
+    true ∈ support (P.sig.verify uk.sigpkB
+      (extractForgery guess cl.2.2.1.challenge.transcript).1
+      (extractForgery guess cl.2.2.1.challenge.transcript).2) := by
+  have hmem : (fun r => (r.1, (r.2.1, envSig P msg hasOPK (pk, sk) r.2.2.1,
+        (⟨tk.ikB, (pk, sk), tk.spkB, tk.spkSigB⟩ : RecipientIdentity F G SPK SSK S)))) cl
+      ∈ support (Prod.fst <$> (simulateQ
+        ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+            (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger uk
+          ⟨tk.ikB, (pk, sk), tk.spkB, tk.spkSigB⟩)).run) := by
+    rw [← fst_run_challengeSession_sigkB P msg hasOPK uk tk (pk, sk) pk sk A]
+    exact (support_map _ _).ge (Set.mem_image_of_mem _ hcl)
+  rw [support_map] at hmem
+  obtain ⟨clr, hclr, hclr_eq⟩ := hmem
+  have hexc : ∃ e ∈ clr.1.2.2.1.challenge.transcript.entries, ∃ b, e.1 = Message.bundle b := by
+    have hch : clr.1.2.2.1.challenge.transcript = cl.2.2.1.challenge.transcript := by
+      rw [hclr_eq]
+      rfl
+    rw [hch]
+    exact hex
+  have hres := schemeForger_bundle_verified P msg hasOPK guess uk
+    ⟨tk.ikB, (pk, sk), tk.spkB, tk.spkSigB⟩ pk sk rfl A clr hclr hexc
+  rw [hclr_eq] at hres
+  simpa [envSig] using hres
+
+private lemma schemeForger_bundle_verified_queryBind [Field F] [AddCommGroup G] [Module F G]
+    [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (guess : Bool) (uk : InitiatorParameters F G SPK Msg)
+    (ikB spkB : G × F) (pk : SPK) (sk : SSK)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (cl : (UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SPK SSK S)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S))
+    (hcl : cl ∈ support
+      ((simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+          (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+        (liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+            (Sum.inr (EncodeEC spkB.1))) >>= fun spkSigB =>
+          UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger uk
+            ⟨ikB, (pk, default), spkB, spkSigB⟩)).run))
+    (hex : ∃ e ∈ cl.1.2.2.1.challenge.transcript.entries, ∃ b, e.1 = Message.bundle b) :
+    true ∈ support (P.sig.verify uk.sigpkB
+      (extractForgery guess cl.1.2.2.1.challenge.transcript).1
+      (extractForgery guess cl.1.2.2.1.challenge.transcript).2) := by
+  have h1 : cl.1 ∈ support (Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec)
+      (m := ProbComp)).liftTarget
+      (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+    (liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+        (Sum.inr (EncodeEC spkB.1))) >>= fun spkSigB =>
+      UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger uk
+        ⟨ikB, (pk, default), spkB, spkSigB⟩)).run) :=
+    (support_map _ _).ge (Set.mem_image_of_mem _ hcl)
+  rw [fst_run_sim_queryBind] at h1
+  obtain ⟨σ, hσ, h1⟩ := (mem_support_bind_iff _ _ _).1 h1
+  exact schemeForger_bundle_verified_default P msg hasOPK guess uk
+    ⟨ikB, (pk, default), spkB, σ⟩ pk sk A cl.1 h1 hex
+
 private lemma probOutput_guess_half {E : Type} (p : ProbComp (Bool × E)) (cond : E → Bool) :
     Pr[= true | do
       let b ← $ᵗ Bool
@@ -4175,6 +5198,425 @@ def bothQueriedPred [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
       (extractForgery true cl.1.2.2.1.challenge.transcript).2 &&
     cl.2.wasQueriedWith (extractForgery false cl.1.2.2.1.challenge.transcript).1
       (extractForgery false cl.1.2.2.1.challenge.transcript).2
+
+noncomputable def realForgerChallenge [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    ProbComp ((UAKE.ChallengeResult (schemeRealForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeRealForger P msg hasOPK) × RecipientIdentity F G SPK SSK S)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) := do
+  let ikA ← dhKeygen P.gen
+  let ikB ← dhKeygen P.gen
+  let sigkB ← P.sig.keygen
+  let spkB ← dhKeygen P.gen
+  (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+      (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle sigkB.1 sigkB.2)
+    (liftM (OracleSpec.query (spec := unifSpec + ((G ⊕ PQPK) →ₒ S))
+        (Sum.inr (EncodeEC spkB.1))) >>= fun spkSigB =>
+      UAKE.challengeSession (proto := schemeRealForger P msg hasOPK) A.toRealForger
+        ⟨ikA, ikB.1, sigkB.1, msg⟩ ⟨ikB, (sigkB.1, default), spkB, spkSigB⟩)).run
+
+def hasBundleB {G PQPK CT S C IdC IdK : Type}
+    (tr : Transcript (Message G PQPK CT S C IdC IdK)) : Bool :=
+  tr.entries.any fun e => e.1 matches Message.bundle _
+
+def sessionHasKemPair {G PQPK CT S C IdC IdK : Type} [DecidableEq G] [DecidableEq PQPK]
+    [DecidableEq S]
+    (trs : List (Transcript (Message G PQPK CT S C IdC IdK))) (pr : (G ⊕ PQPK) × S) : Bool :=
+  trs.any fun tr => tr.entries.any fun e =>
+    match e.1 with
+    | Message.bundle b => decide ((EncodeKEM b.pqpkB.1, b.pqpkSigB) = pr)
+    | _ => false
+
+private lemma hasBundleB_iff {G PQPK CT S C IdC IdK : Type}
+    (tr : Transcript (Message G PQPK CT S C IdC IdK)) :
+    hasBundleB tr = true ↔ ∃ e ∈ tr.entries, ∃ b, e.1 = Message.bundle b := by
+  simp only [hasBundleB, List.any_eq_true]
+  constructor
+  · rintro ⟨e, he, hm⟩
+    rcases hb : e.1 with b | im | c <;> rw [hb] at hm
+    · exact ⟨e, he, b, hb⟩
+    · simp at hm
+    · simp at hm
+  · rintro ⟨e, he, b, hb⟩
+    exact ⟨e, he, by rw [hb]⟩
+
+def freshKemPred [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (cl : (UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SPK SSK S)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) : Bool :=
+  hasBundleB cl.1.2.2.1.challenge.transcript &&
+    !(sessionHasKemPair (cl.1.2.2.1.tSessions.map fun t => t.transcript)
+      (extractForgery true cl.1.2.2.1.challenge.transcript))
+
+def freshKemPredReal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (cl : (UAKE.ChallengeResult (schemeRealForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeRealForger P msg hasOPK) ×
+          RecipientIdentity F G SPK SSK S)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) : Bool :=
+  hasBundleB cl.1.2.2.1.challenge.transcript &&
+    !(sessionHasKemPair (cl.1.2.2.1.tSessions.map fun t => t.transcript)
+      (extractForgery true cl.1.2.2.1.challenge.transcript))
+
+private lemma sessionHasKemPair_mono_cons {G PQPK CT S C IdC IdK : Type} [DecidableEq G]
+    [DecidableEq PQPK] [DecidableEq S]
+    (tr : Transcript (Message G PQPK CT S C IdC IdK))
+    (trs : List (Transcript (Message G PQPK CT S C IdC IdK))) (pr : (G ⊕ PQPK) × S)
+    (h : sessionHasKemPair trs pr = true) :
+    sessionHasKemPair (tr :: trs) pr = true := by
+  simp only [sessionHasKemPair, List.any_cons, Bool.or_eq_true]
+  right; exact h
+
+private lemma sessionHasKemPair_mono_append {G PQPK CT S C IdC IdK : Type} [DecidableEq G]
+    [DecidableEq PQPK] [DecidableEq S]
+    (trs₁ trs₂ : List (Transcript (Message G PQPK CT S C IdC IdK))) (pr : (G ⊕ PQPK) × S)
+    (h : sessionHasKemPair trs₁ pr = true) :
+    sessionHasKemPair (trs₁ ++ trs₂) pr = true := by
+  simp only [sessionHasKemPair, List.any_append, Bool.or_eq_true]
+  left; exact h
+
+private lemma sessionHasKemPair_of_mem {G PQPK CT S C IdC IdK : Type} [DecidableEq G]
+    [DecidableEq PQPK] [DecidableEq S]
+    (trs : List (Transcript (Message G PQPK CT S C IdC IdK))) (pr : (G ⊕ PQPK) × S)
+    (tr : Transcript (Message G PQPK CT S C IdC IdK)) (htr : tr ∈ trs)
+    (e : Message G PQPK CT S C IdC IdK × ℕ) (he : e ∈ tr.entries)
+    (b : PreKeyBundle G PQPK S IdC IdK) (hb : e.1 = Message.bundle b)
+    (hpr : (EncodeKEM b.pqpkB.1, b.pqpkSigB) = pr) :
+    sessionHasKemPair trs pr = true := by
+  simp only [sessionHasKemPair, List.any_eq_true]
+  refine ⟨tr, htr, e, he, ?_⟩
+  subst hpr
+  rw [hb]
+  simp
+
+private lemma sessionHasKemPair_set_mono {G PQPK CT S C IdC IdK : Type} [DecidableEq G]
+    [DecidableEq PQPK] [DecidableEq S]
+    (trs : List (Transcript (Message G PQPK CT S C IdC IdK))) (sid : ℕ)
+    (tr' : Transcript (Message G PQPK CT S C IdC IdK)) (pr : (G ⊕ PQPK) × S)
+    (hext : ∀ tr ∈ trs[sid]?, ∀ e ∈ tr.entries, e ∈ tr'.entries)
+    (h : sessionHasKemPair trs pr = true) :
+    sessionHasKemPair (trs.set sid tr') pr = true := by
+  simp only [sessionHasKemPair, List.any_eq_true] at h ⊢
+  obtain ⟨tr, htr, e, he, hmatch⟩ := h
+  obtain ⟨i, hi⟩ := List.mem_iff_getElem?.1 htr
+  by_cases hsid : i = sid
+  · subst hsid
+    have hlen : i < trs.length := (List.getElem?_eq_some_iff.1 hi).1
+    refine ⟨tr', List.mem_iff_getElem?.2 ⟨i, ?_⟩, e, hext tr hi e he, hmatch⟩
+    rw [List.getElem?_set_self hlen]
+  · refine ⟨tr, List.mem_iff_getElem?.2 ⟨i, ?_⟩, e, he, hmatch⟩
+    rw [List.getElem?_set_ne (Ne.symm hsid)]; exact hi
+
+
+def KemPub [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (env : UAKE.Env (schemeForger P msg hasOPK)) (pr : (G ⊕ PQPK) × S) : Prop :=
+  sessionHasKemPair (env.tSessions.map fun t => t.transcript) pr = true
+
+private lemma kemLogPublished_query [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (pk : SPK) (sk : SSK) (hsig : tk.sigkB = (pk, sk))
+    (q : (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)).Domain)
+    (env : UAKE.Env (schemeForger P msg hasOPK)) :
+    ∀ z ∈ support ((simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((UAKE.oracleImpl (schemeForger P msg hasOPK) tk q).run env)).run),
+      (∀ mpk σ, (⟨EncodeKEM mpk, σ⟩ : (t : (G ⊕ PQPK)) × S) ∈ z.2 →
+          KemPub P msg hasOPK z.1.2 (EncodeKEM mpk, σ))
+        ∧ (∀ pr, KemPub P msg hasOPK env pr → KemPub P msg hasOPK z.1.2 pr) := by
+  cases q with
+  | inl u =>
+    intro z hz
+    simp only [UAKE.oracleImpl, QueryImpl.add_apply_inl, QueryImpl.liftTarget_apply,
+      HasQuery.toQueryImpl_apply] at hz
+    erw [StateT.run_liftM] at hz
+    erw [run_sim_liftM_bind] at hz
+    obtain ⟨a, -, hz⟩ := (mem_support_bind_iff _ _ _).1 hz
+    simp only [simulateQ_pure, WriterT.run_pure', support_pure, Set.mem_singleton_iff] at hz
+    subst hz
+    exact ⟨fun mpk σ hmem => by simp at hmem, fun pr h => h⟩
+  | inr op =>
+    simp only [UAKE.oracleImpl, QueryImpl.add_apply_inr]
+    cases op with
+    | openT => sorry
+    | stepT sid w => sorry
+    | revealT sid => sorry
+    | stepChallenge w => sorry
+
+private lemma kemLogPublished_run [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (tk : RecipientIdentity F G SPK SSK S) (pk : SPK) (sk : SSK) (hsig : tk.sigkB = (pk, sk))
+    {X : Type}
+    (oa : OracleComp (unifSpec + UAKE.oracleSpec K (Message G PQPK CT S C IdC IdK)) X)
+    (env0 : UAKE.Env (schemeForger P msg hasOPK)) :
+    ∀ z ∈ support ((simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle pk sk)
+      ((simulateQ (UAKE.oracleImpl (schemeForger P msg hasOPK) tk) oa).run env0)).run),
+      (∀ mpk σ, (⟨EncodeKEM mpk, σ⟩ : (t : (G ⊕ PQPK)) × S) ∈ z.2 →
+          KemPub P msg hasOPK z.1.2 (EncodeKEM mpk, σ))
+        ∧ (∀ pr, KemPub P msg hasOPK env0 pr → KemPub P msg hasOPK z.1.2 pr) := by
+  induction oa using OracleComp.inductionOn generalizing env0 with
+  | pure x =>
+    intro z hz
+    simp only [simulateQ_pure, StateT.run_pure, WriterT.run_pure', support_pure,
+      Set.mem_singleton_iff] at hz
+    subst hz
+    refine ⟨fun mpk σ hmem => ?_, fun pr h => h⟩
+    simp at hmem
+  | query_bind q oa ih =>
+    intro z hz
+    simp only [simulateQ_bind, simulateQ_query, OracleQuery.input_query, OracleQuery.cont_query,
+      id_map, StateT.run_bind, WriterT.run_bind'] at hz
+    obtain ⟨p, hp, hz⟩ := (mem_support_bind_iff _ _ _).1 hz
+    obtain ⟨p2, hp2, hz⟩ := mem_support_map_peel _ _ hz
+    obtain ⟨hq1, hqmono⟩ := kemLogPublished_query P msg hasOPK tk pk sk hsig q env0 p hp
+    obtain ⟨hr1, hrmono⟩ := ih p.1.1 p.1.2 p2 hp2
+    subst hz
+    refine ⟨fun mpk σ hmem => ?_, fun pr h => hrmono pr (hqmono pr h)⟩
+    simp only [Prod.map_snd] at hmem ⊢
+    rw [List.mem_append] at hmem
+    rcases hmem with hmem | hmem
+    · exact hrmono _ (hq1 mpk σ hmem)
+    · exact hr1 mpk σ hmem
+
+noncomputable def expRestIdeal [Field F]
+ [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (r : UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SPK SSK S))
+    (b : Bool) : ProbComp Bool :=
+  let cr := crFI P msg hasOPK r.1
+  let st := (r.2.1, envFI P msg hasOPK r.2.2.1, r.2.2.2)
+  if cr.K0.isNone then
+    UAKE.finalize A.toIdeal st cr b none
+  else if !UAKE.isPingPong cr then
+    pure true
+  else do
+    let K1 ← some <$> ($ᵗ K : ProbComp K)
+    UAKE.finalize A.toIdeal st cr b K1
+
+noncomputable def expRestReal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK))
+    (r : UAKE.ChallengeResult (schemeRealForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeRealForger P msg hasOPK) ×
+          RecipientIdentity F G SPK SSK S))
+    (b : Bool) : ProbComp Bool :=
+  let cr := crRF P msg hasOPK r.1
+  let st := (r.2.1, envRF P msg hasOPK r.2.2.1, r.2.2.2)
+  if cr.K0.isNone then
+    UAKE.finalize A st cr b none
+  else if !UAKE.isPingPong cr then
+    pure true
+  else do
+    let K1 ← some <$> ($ᵗ K : ProbComp K)
+    UAKE.finalize A st cr b K1
+
+noncomputable def expLogIdeal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    ProbComp ((UAKE.ChallengeResult (schemeForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeForger P msg hasOPK) × RecipientIdentity F G SPK SSK S)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) := do
+  let ikA ← dhKeygen P.gen
+  let ikB ← dhKeygen P.gen
+  let sigkB ← P.sig.keygen
+  let spkB ← dhKeygen P.gen
+  let spkSigB ← P.sig.sign sigkB.1 sigkB.2 (EncodeEC spkB.1)
+  (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+      (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle sigkB.1 sigkB.2)
+    (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger
+      ⟨ikA, ikB.1, sigkB.1, msg⟩ ⟨ikB, sigkB, spkB, spkSigB⟩)).run
+
+noncomputable def expLogReal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    ProbComp ((UAKE.ChallengeResult (schemeRealForger P msg hasOPK) ×
+        (A.State × UAKE.Env (schemeRealForger P msg hasOPK) × RecipientIdentity F G SPK SSK S)) ×
+      QueryLog ((G ⊕ PQPK) →ₒ S)) := do
+  let ikA ← dhKeygen P.gen
+  let ikB ← dhKeygen P.gen
+  let sigkB ← P.sig.keygen
+  let spkB ← dhKeygen P.gen
+  let spkSigB ← P.sig.sign sigkB.1 sigkB.2 (EncodeEC spkB.1)
+  (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+      (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle sigkB.1 sigkB.2)
+    (UAKE.challengeSession (proto := schemeRealForger P msg hasOPK) A.toRealForger
+      ⟨ikA, ikB.1, sigkB.1, msg⟩ ⟨ikB, sigkB, spkB, spkSigB⟩)).run
+
+private lemma probOutput_fstmap_bind_eq {γ δ ε : Type} (m : ProbComp (γ × δ)) (f : γ → ε)
+    (g : ε → ProbComp Bool) (g' : γ × δ → ProbComp Bool)
+    (h : ∀ z, g' z = g (f z.1)) :
+    Pr[= true | (f <$> (Prod.fst <$> m)) >>= g] = Pr[= true | m >>= g'] := by
+  simp only [Functor.map_map, map_eq_bind_pure_comp, bind_assoc, Function.comp_def, pure_bind]
+  exact probOutput_bind_congr fun z _ => by rw [h z]
+
+private lemma exp_eq_forgerForm_ideal [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    Pr[= true | UAKE.Exp A.toIdeal] =
+    Pr[= true | do
+      let cl ← expLogIdeal P msg hasOPK A
+      let b ← ($ᵗ Bool : ProbComp Bool)
+      expRestIdeal P msg hasOPK A cl.1 b] := by
+  have h1 : Pr[= true | UAKE.Exp A.toIdeal]
+      = Pr[= true | do
+          let x ← (uakeInitiatorIdeal P msg hasOPK).setup
+          let y ← UAKE.challengeSession (proto := uakeInitiatorIdeal P msg hasOPK)
+            A.toIdeal x.1 x.2
+          let b ← ($ᵗ Bool : ProbComp Bool)
+          if y.1.K0.isNone then
+            UAKE.finalize A.toIdeal y.2 y.1 b none
+          else if !UAKE.isPingPong y.1 then
+            pure true
+          else do
+            let K1 ← some <$> ($ᵗ K : ProbComp K)
+            UAKE.finalize A.toIdeal y.2 y.1 b K1] := by
+    unfold UAKE.Exp
+    refine probOutput_bind_congr fun x _ => ?_
+    rw [probOutput_bind_bind_swap]
+    rfl
+  rw [h1]
+  have hsetup : (uakeInitiatorIdeal P msg hasOPK).setup = setup P msg := rfl
+  simp only [hsetup, setup, bind_assoc, pure_bind, expLogIdeal]
+  refine probOutput_bind_congr fun ikA _ => probOutput_bind_congr fun ikB _ =>
+    probOutput_bind_congr fun sigkB _ => probOutput_bind_congr fun spkB _ =>
+    probOutput_bind_congr fun σ _ => ?_
+  rw [← fst_run_challengeSession P msg hasOPK ⟨ikA, ikB.1, sigkB.1, msg⟩
+    ⟨ikB, sigkB, spkB, σ⟩ sigkB.1 sigkB.2 rfl A]
+  generalize (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec)
+      (m := ProbComp)).liftTarget (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp)
+      + P.sig.signingOracle sigkB.1 sigkB.2)
+    (UAKE.challengeSession (proto := schemeForger P msg hasOPK) A.toForger
+      ⟨ikA, ikB.1, sigkB.1, msg⟩ ⟨ikB, sigkB, spkB, σ⟩)).run = RUN
+  exact probOutput_fstmap_bind_eq RUN _ _
+    (fun cl => ($ᵗ Bool : ProbComp Bool) >>= expRestIdeal P msg hasOPK A cl.1)
+    (fun z => rfl)
+
+private lemma exp_eq_forgerForm_real [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) :
+    Pr[= true | UAKE.Exp A] =
+    Pr[= true | do
+      let cl ← expLogReal P msg hasOPK A
+      let b ← ($ᵗ Bool : ProbComp Bool)
+      expRestReal P msg hasOPK A cl.1 b] := by
+  have h1 : Pr[= true | UAKE.Exp A]
+      = Pr[= true | do
+          let x ← (uakeInitiator P msg hasOPK).setup
+          let y ← UAKE.challengeSession (proto := uakeInitiator P msg hasOPK)
+            A x.1 x.2
+          let b ← ($ᵗ Bool : ProbComp Bool)
+          if y.1.K0.isNone then
+            UAKE.finalize A y.2 y.1 b none
+          else if !UAKE.isPingPong y.1 then
+            pure true
+          else do
+            let K1 ← some <$> ($ᵗ K : ProbComp K)
+            UAKE.finalize A y.2 y.1 b K1] := by
+    unfold UAKE.Exp
+    refine probOutput_bind_congr fun x _ => ?_
+    rw [probOutput_bind_bind_swap]
+    rfl
+  rw [h1]
+  have hsetup : (uakeInitiator P msg hasOPK).setup = setup P msg := rfl
+  simp only [hsetup, setup, bind_assoc, pure_bind, expLogReal]
+  refine probOutput_bind_congr fun ikA _ => probOutput_bind_congr fun ikB _ =>
+    probOutput_bind_congr fun sigkB _ => probOutput_bind_congr fun spkB _ =>
+    probOutput_bind_congr fun σ _ => ?_
+  rw [← fst_run_challengeSession_real P msg hasOPK ⟨ikA, ikB.1, sigkB.1, msg⟩
+    ⟨ikB, sigkB, spkB, σ⟩ sigkB.1 sigkB.2 rfl A]
+  generalize (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec)
+      (m := ProbComp)).liftTarget (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp)
+      + P.sig.signingOracle sigkB.1 sigkB.2)
+    (UAKE.challengeSession (proto := schemeRealForger P msg hasOPK) A.toRealForger
+      ⟨ikA, ikB.1, sigkB.1, msg⟩ ⟨ikB, sigkB, spkB, σ⟩)).run = RUN
+  exact probOutput_fstmap_bind_eq RUN _ _
+    (fun cl => ($ᵗ Bool : ProbComp Bool) >>= expRestReal P msg hasOPK A cl.1)
+    (fun z => rfl)
+
+
+private lemma probOutput_bind_bool_partition {α : Type} (m : ProbComp α)
+    (f : α → ProbComp Bool) (ind : α → Bool) :
+    Pr[= true | m >>= f]
+      = Pr[= true | do
+          let z ← m
+          let r ← f z
+          pure (r && ind z)]
+        + Pr[= true | do
+          let z ← m
+          let r ← f z
+          pure (r && !ind z)] := by
+  have key : ∀ z, Pr[= true | f z]
+      = Pr[= true | f z >>= fun r => pure (r && ind z)]
+        + Pr[= true | f z >>= fun r => pure (r && !ind z)] := by
+    intro z
+    conv_lhs => rw [← bind_pure (f z)]
+    simp only [probOutput_bind_eq_tsum, ← ENNReal.tsum_add]
+    refine tsum_congr fun r => ?_
+    rw [← mul_add]
+    rcases hr : r <;> rcases hi : ind z <;> simp
+  rw [probOutput_bind_eq_tsum, probOutput_bind_eq_tsum, probOutput_bind_eq_tsum,
+    ← ENNReal.tsum_add]
+  refine tsum_congr fun z => ?_
+  rw [← mul_add, key z]
+
+private lemma probOutput_bind_and_ind_le {α : Type} (m : ProbComp α)
+    (f : α → ProbComp Bool) (ind : α → Bool) :
+    Pr[= true | do
+        let z ← m
+        let r ← f z
+        pure (r && ind z)]
+      ≤ Pr[= true | m >>= fun z => pure (ind z)] := by
+  refine probOutput_bind_mono fun z _ => ?_
+  rcases hi : ind z with _ | _
+  · simp only [Bool.and_false]
+    simp
+  · simp only [Bool.and_true]
+    rw [bind_pure]
+    rw [show Pr[= true | (pure true : ProbComp Bool)] = 1 from by simp]
+    exact probOutput_le_one
 
 def forgerWin [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
@@ -4795,6 +6237,114 @@ private lemma idealHop_bound [Field F] [AddCommGroup G] [Module F G] [Sampleable
   rw [abs_of_nonneg (by positivity)]
   linarith [hauth]
 
+private lemma abs_partition_diff_le {a₁ b₁ a₂ b₂ e₁ e₂ : ℝ} (ha₁ : 0 ≤ a₁) (ha₂ : 0 ≤ a₂)
+    (h₁ : a₁ ≤ e₁) (h₂ : a₂ ≤ e₁) (hb : |b₁ - b₂| ≤ e₂) :
+    |(a₁ + b₁) - (a₂ + b₂)| ≤ 2 * e₁ + e₂ := by
+  rw [abs_le] at hb ⊢
+  obtain ⟨hb1, hb2⟩ := hb
+  constructor <;> linarith
+
+private lemma freshMass_real_le [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (εsig : ℝ)
+    (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    (hsig : ∀ B : P.sig.unforgeableAdv,
+      (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig) :
+    (Pr[= true | expLogReal P msg hasOPK A >>= fun cl =>
+      pure (freshKemPredReal P msg hasOPK A cl)]).toReal ≤ εsig := by
+  sorry
+
+private lemma freshMass_ideal_le [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (εsig : ℝ)
+    (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    (hsig : ∀ B : P.sig.unforgeableAdv,
+      (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig) :
+    (Pr[= true | expLogIdeal P msg hasOPK A >>= fun cl =>
+      pure (freshKemPred P msg hasOPK A cl)]).toReal ≤ εsig := by
+  sorry
+
+private lemma keyHop_bound [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS]
+    [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
+    (εsig εkem εaead εkdf : ℝ)
+    (hverifyDet : ∀ (pk : SPK) (m : G ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    (hsig : ∀ B : P.sig.unforgeableAdv,
+      (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
+    (hkem : ∀ B : P.pqkem.IND_CCA_Adversary,
+      P.pqkem.IND_CCA_Advantage ProbCompRuntime.probComp B ≤ εkem)
+    (haead : ∀ B : AEAD.INT_CTXT_D_Adversary P.aead,
+      AEAD.INT_CTXT_D_Advantage P.aead B ≤ εaead)
+    (hkdf : ∀ D : PRFScheme.PRFAdversary (G × G × G × Option G) (K × K × K),
+      (kdfPRF P).prfAdvantage D ≤ εkdf) :
+    |(Pr[= true | UAKE.Exp A]).toReal - (Pr[= true | UAKE.Exp A.toIdeal]).toReal|
+      ≤ 2 * εsig + q * (εkem + 2 * εaead + εkdf) := by
+  rw [exp_eq_forgerForm_real P msg hasOPK A, exp_eq_forgerForm_ideal P msg hasOPK A]
+  have h₁ : Pr[= true | do
+        let cl ← expLogReal P msg hasOPK A
+        let b ← ($ᵗ Bool : ProbComp Bool)
+        expRestReal P msg hasOPK A cl.1 b]
+      = Pr[= true | do
+          let cl ← expLogReal P msg hasOPK A
+          let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestReal P msg hasOPK A cl.1
+          pure (r && freshKemPredReal P msg hasOPK A cl)]
+        + Pr[= true | do
+          let cl ← expLogReal P msg hasOPK A
+          let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestReal P msg hasOPK A cl.1
+          pure (r && !freshKemPredReal P msg hasOPK A cl)] :=
+    probOutput_bind_bool_partition _ _ _
+  have h₂ : Pr[= true | do
+        let cl ← expLogIdeal P msg hasOPK A
+        let b ← ($ᵗ Bool : ProbComp Bool)
+        expRestIdeal P msg hasOPK A cl.1 b]
+      = Pr[= true | do
+          let cl ← expLogIdeal P msg hasOPK A
+          let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestIdeal P msg hasOPK A cl.1
+          pure (r && freshKemPred P msg hasOPK A cl)]
+        + Pr[= true | do
+          let cl ← expLogIdeal P msg hasOPK A
+          let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestIdeal P msg hasOPK A cl.1
+          pure (r && !freshKemPred P msg hasOPK A cl)] :=
+    probOutput_bind_bool_partition _ _ _
+  rw [h₁, h₂]
+  rw [ENNReal.toReal_add probOutput_ne_top probOutput_ne_top,
+    ENNReal.toReal_add probOutput_ne_top probOutput_ne_top]
+  have hAR : (Pr[= true | do
+        let cl ← expLogReal P msg hasOPK A
+        let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestReal P msg hasOPK A cl.1
+        pure (r && freshKemPredReal P msg hasOPK A cl)]).toReal ≤ εsig := by
+    refine le_trans ?_ (freshMass_real_le P msg hasOPK A εsig hverifyDet hsig)
+    refine ENNReal.toReal_mono probOutput_ne_top ?_
+    exact probOutput_bind_and_ind_le _ _ _
+  have hAI : (Pr[= true | do
+        let cl ← expLogIdeal P msg hasOPK A
+        let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestIdeal P msg hasOPK A cl.1
+        pure (r && freshKemPred P msg hasOPK A cl)]).toReal ≤ εsig := by
+    refine le_trans ?_ (freshMass_ideal_le P msg hasOPK A εsig hverifyDet hsig)
+    refine ENNReal.toReal_mono probOutput_ne_top ?_
+    exact probOutput_bind_and_ind_le _ _ _
+  have hRest : |(Pr[= true | do
+        let cl ← expLogReal P msg hasOPK A
+        let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestReal P msg hasOPK A cl.1
+        pure (r && !freshKemPredReal P msg hasOPK A cl)]).toReal
+      - (Pr[= true | do
+        let cl ← expLogIdeal P msg hasOPK A
+        let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestIdeal P msg hasOPK A cl.1
+        pure (r && !freshKemPred P msg hasOPK A cl)]).toReal|
+      ≤ q * (εkem + 2 * εaead + εkdf) := by
+    sorry
+  exact abs_partition_diff_le ENNReal.toReal_nonneg ENNReal.toReal_nonneg hAR hAI hRest
+
 theorem uakeInitiator_secure_pq
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS]
@@ -4818,14 +6368,15 @@ theorem uakeInitiator_secure_pq
     /- MODEL SIMPLIFICATION: We model the KDF as a PRF keyed by the KEM secret. -/
     (hkdf : ∀ D : PRFScheme.PRFAdversary (G × G × G × Option G) (K × K × K),
       (kdfPRF P).prfAdvantage D ≤ εkdf) :
-    UAKE.advantage A ≤ εsig + q * (εkem + εaead + εkdf) := by
+    UAKE.advantage A ≤ 3 * εsig + q * (εkem + 3 * εaead + εkdf) := by
   unfold UAKE.advantage
   set pReal := (Pr[= true | UAKE.Exp A]).toReal with hpReal
   set pIdeal := (Pr[= true | UAKE.Exp A.toIdeal]).toReal with hpIdeal
+  have : Inhabited G := ⟨0⟩
   -- Hop 1 (KEM IND-CCA on the challenge KEM key, then `KdfPRF`): reprogramming the
   -- challenge session's key material to uniform is undetectable, hybridized over the q sessions.
-  have hKeyHop : |pReal - pIdeal| ≤ q * (εkem + εkdf) := by
-    sorry
+  have hKeyHop : |pReal - pIdeal| ≤ 2 * εsig + q * (εkem + 2 * εaead + εkdf) :=
+    keyHop_bound P msg hasOPK A q hq εsig εkem εaead εkdf hverifyDet hsig hkem haead hkdf
   -- Hop 2 (signature EUF-CMA + AEAD INT-CTXT): with the challenge key uniform, confidentiality
   -- is exactly 1/2, and a non-ping-pong completion needs a forged prekey signature (εsig) or a
   -- forged AEAD confirmation under a uniform key (q·εaead).
@@ -4833,8 +6384,9 @@ theorem uakeInitiator_secure_pq
     idealHop_bound P msg hasOPK hidKEM A q hq εsig εaead hverifyDet hsig haead
   calc |pReal - 1 / 2|
       ≤ |pReal - pIdeal| + |pIdeal - 1 / 2| := abs_sub_le _ _ _
-    _ ≤ q * (εkem + εkdf) + (εsig + q * εaead) := add_le_add hKeyHop hIdealHop
-    _ = εsig + q * (εkem + εaead + εkdf) := by ring
+    _ ≤ (2 * εsig + q * (εkem + 2 * εaead + εkdf)) + (εsig + q * εaead) :=
+        add_le_add hKeyHop hIdealHop
+    _ = 3 * εsig + q * (εkem + 3 * εaead + εkdf) := by ring
 
 theorem uakeInitiator_secure_dh
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
