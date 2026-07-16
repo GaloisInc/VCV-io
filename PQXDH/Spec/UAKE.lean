@@ -10,6 +10,7 @@ import PQXDH.ToVCVio.CryptoFoundations.SignatureAlg
 import VCVio.CryptoFoundations.HardnessAssumptions.DiffieHellman
 import VCVio.CryptoFoundations.PRF
 import VCVio.OracleComp.QueryTracking.QueryBound
+import VCVio.ProgramLogic.Relational.Quantitative
 
 /-!
 # PQXDH modeled as a DF'17-style UAKE
@@ -10902,6 +10903,15 @@ def publishConcrete [Field F] [AddCommGroup G] [Module F G]
            pqpkSigB := pqpkSigB
            opkB := p.opkB.map fun opk => (opk.1, P.idEC opk.1) }
 
+private lemma fst_run_publishForger_concrete [Field F] [AddCommGroup G] [Module F G]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : RecipientParameters F G PQPK PQSK SPK SSK S) :
+    Prod.fst <$> (simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp)).liftTarget
+        (WriterT (QueryLog ((G ⊕ PQPK) →ₒ S)) ProbComp) + P.sig.signingOracle p.sigkB.1 p.sigkB.2)
+      (publishForger P p)).run = publishConcrete P p := by
+  rw [run_simulateQ_publishForger]
+  simp only [publishConcrete, map_bind, map_pure]
+
 def initiatorKemForgerE [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [DecidableEq G] [DecidableEq Msg] [SampleableType K] [Fintype K] [Inhabited K]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
@@ -11088,13 +11098,162 @@ noncomputable def challengeSessionK [Field F] [AddCommGroup G] [Module F G] [Sam
   pure (⟨k0.join, env.challenge.transcript, env.tSessions.map (·.transcript)⟩,
     (st, env, tk))
 
+def envKF [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (enc : PQPK → ProbComp (CT × SS))
+    (e : UAKE.Env (schemeKemForger P msg hasOPK enc)) :
+    UAKE.Env (schemeRealForger P msg hasOPK) :=
+  { clock := e.clock
+    challenge := e.challenge
+    challengeDone := e.challengeDone
+    tSessions := e.tSessions.map fun t => ⟨t.state, t.transcript, t.key, t.revealed⟩ }
+
+def crKF [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K]
+    [DecidableEq G] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (enc : PQPK → ProbComp (CT × SS))
+    (cr : UAKE.ChallengeResult (schemeKemForger P msg hasOPK enc)) :
+    UAKE.ChallengeResult (schemeRealForger P msg hasOPK) :=
+  { K0 := cr.K0, challengeTr := cr.challengeTr, oracleTrs := cr.oracleTrs }
+
+noncomputable def kemForgerBj [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS] [DecidableEq SS]
+    [DecidableEq CT] [Inhabited PQSK] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (j : ℕ) :
+    P.pqkem.IND_CCA_Adversary where
+  State := InitiatorParameters F G SPK Msg × RecipientIdentity F G SPK SSK S × PQPK
+  preChallenge := fun pk => (do
+    let ikA ← liftM (dhKeygen P.gen)
+    let ikB ← liftM (dhKeygen P.gen)
+    let sigkB ← liftM P.sig.keygen
+    let spkB ← liftM (dhKeygen P.gen)
+    let spkSigB ← liftM (P.sig.sign sigkB.1 sigkB.2 (EncodeEC spkB.1))
+    pure (⟨ikA, ikB.1, sigkB.1, msg⟩, ⟨ikB, sigkB, spkB, spkSigB⟩, pk) :
+    OracleComp (unifSpec + (CT →ₒ Option SS))
+      (InitiatorParameters F G SPK Msg × RecipientIdentity F G SPK SSK S × PQPK))
+  postChallenge := fun st cStar key => (do
+    let (uk, tk, pk) := st
+    let clK ← challengeSessionK P msg hasOPK j (pk, default) cStar key
+        (fun pk' => if pk' = pk then pure (cStar, key) else P.pqkem.encaps pk') A uk tk
+    let clR := (crKF P msg hasOPK _ clK.1,
+      (clK.2.1, envKF P msg hasOPK _ clK.2.2.1, clK.2.2.2))
+    let r ← liftM (($ᵗ Bool : ProbComp Bool) >>= expRestReal P msg hasOPK A clR)
+    pure (r && !freshKemPredReal P msg hasOPK A (clR, (∅ : QueryLog ((G ⊕ PQPK) →ₒ S))) &&
+      (kemMatchIdx (clR.2.2.1.tSessions.map fun t => t.transcript)
+        (extractForgery true clR.2.2.1.challenge.transcript) == some j)) :
+    OracleComp (unifSpec + (CT →ₒ Option SS)) Bool)
+
+private lemma decaps_query_sim [DecidableEq CT] (decf : CT → ProbComp (Option SS))
+    (t cStar : CT) (hc : ¬ t = cStar) :
+    simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp))
+        + (fun c => if c = cStar then (pure none : ProbComp (Option SS)) else decf c))
+      (liftM (OracleSpec.query (spec := unifSpec + (CT →ₒ Option SS)) (Sum.inr t))) = decf t := by
+  simp only [simulateQ_query, OracleQuery.input_query, OracleQuery.cont_query, id_map]
+  show (if t = cStar then (pure none : ProbComp (Option SS)) else decf t) = decf t
+  rw [if_neg hc]
+
+lemma acceptKD_sim [Field F] [AddCommGroup G] [Module F G]
+    [DecidableEq CT] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK)
+    (p : RecipientParameters F G PQPK PQSK SPK SSK S)
+    (im : InitialMessage G CT C IdC IdK) (cStar : CT) (key : SS)
+    (hdec : P.pqkem.decaps p.pqpkB.2 cStar = pure (some key)) :
+    simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp))
+        + (fun c => if c = cStar then (pure none : ProbComp (Option SS))
+            else P.pqkem.decaps p.pqpkB.2 c))
+        (acceptKD P p (fun c => if c = cStar then pure (some key)
+          else (OracleSpec.query (spec := unifSpec + (CT →ₒ Option SS)) (Sum.inr c))) im)
+      = accept P p im := by
+  have hRHS : accept P p im
+      = acceptKD (M := ProbComp) P p (fun c => P.pqkem.decaps p.pqpkB.2 c) im := rfl
+  rw [hRHS]
+  unfold acceptKD
+  by_cases hg : im.idSPK ≠ P.idEC p.spkB.1 ∨ im.idPQPK ≠ P.idKEM p.pqpkB.1 ∨
+      im.idOPK ≠ p.opkB.map (fun opk => P.idEC opk.1)
+  · simp only [hg, if_true, simulateQ_pure]
+  · simp only [hg, if_false, simulateQ_bind]
+    have hdc : simulateQ ((HasQuery.toQueryImpl (spec := unifSpec) (m := ProbComp))
+        + (fun c => if c = cStar then (pure none : ProbComp (Option SS))
+            else P.pqkem.decaps p.pqpkB.2 c))
+        (if im.ct = cStar then (pure (some key) : OracleComp (unifSpec + (CT →ₒ Option SS)) (Option SS))
+          else (OracleSpec.query (spec := unifSpec + (CT →ₒ Option SS)) (Sum.inr im.ct)))
+        = P.pqkem.decaps p.pqpkB.2 im.ct := by
+      by_cases hc : im.ct = cStar
+      · simp only [hc, if_true, simulateQ_pure, hdec]
+      · rw [if_neg hc]
+        exact decaps_query_sim (fun c => P.pqkem.decaps p.pqpkB.2 c) im.ct cStar hc
+    rw [hdc]
+    simp only [simulateQ_pure, pure_bind]
+    refine bind_congr fun r => ?_
+    cases r with
+    | none => simp only [simulateQ_pure]
+    | some ss =>
+        dsimp only
+        split <;> rfl
+
+noncomputable def bjGameKey [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS] [DecidableEq SS]
+    [DecidableEq CT] [Inhabited PQSK] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (j : ℕ) (useReal : Bool) : ProbComp Bool := do
+  let (pk, sk) ← P.pqkem.keygen
+  let st ← simulateQ (P.pqkem.IND_CCA_preChallengeImpl sk)
+    ((kemForgerBj P msg hasOPK A j).preChallenge pk)
+  let (cStar, kReal) ← P.pqkem.encaps pk
+  let kRand ← ($ᵗ SS : ProbComp SS)
+  simulateQ (P.pqkem.IND_CCA_postChallengeImpl sk cStar)
+    ((kemForgerBj P msg hasOPK A j).postChallenge st cStar (if useReal then kReal else kRand))
+
+private lemma kemForgerBj_advantage_eq [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
+    [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS] [DecidableEq SS]
+    [DecidableEq CT] [Inhabited PQSK] [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [DecidableEq G] [DecidableEq PQPK] [DecidableEq S] [DecidableEq C]
+    [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
+    (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
+    (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (j : ℕ) :
+    P.pqkem.IND_CCA_Advantage ProbCompRuntime.probComp (kemForgerBj P msg hasOPK A j)
+      = SPMF.boolDistAdvantage 𝒟[bjGameKey P msg hasOPK A j true]
+          𝒟[bjGameKey P msg hasOPK A j false] := by
+  have bind_swap : ∀ {α β γ : Type} (mx : SPMF α) (my : SPMF β) (f : α → β → SPMF γ),
+      (mx >>= fun a => my >>= fun b => f a b) = (my >>= fun b => mx >>= fun a => f a b) := by
+    intro α β γ mx my f; ext x; exact probOutput_bind_bind_swap mx my (fun a b => f a b) x
+  unfold KEMScheme.IND_CCA_Advantage
+  have hspmf : KEMScheme.IND_CCA_Game ProbCompRuntime.probComp (kemForgerBj P msg hasOPK A j) =
+      𝒟[$ᵗ Bool] >>= fun b =>
+        (if b then 𝒟[bjGameKey P msg hasOPK A j true] else 𝒟[bjGameKey P msg hasOPK A j false])
+          >>= fun z => pure (b == z) := by
+    have hev : ∀ {α : Type} (mx : ProbComp α),
+        ProbCompRuntime.probComp.evalDist mx = 𝒟[mx] := fun _ => rfl
+    have hlift : ∀ {α : Type} (x : ProbComp α),
+        ProbCompRuntime.probComp.liftProbComp.toFun α x = x := fun _ => rfl
+    unfold KEMScheme.IND_CCA_Game bjGameKey
+    simp only [hev, hlift, evalDist_bind, evalDist_pure]
+    simp_rw [bind_swap (my := 𝒟[$ᵗ Bool])]
+    congr 1; funext b
+    cases b <;> simp
+  rw [hspmf, SPMF.boolBiasAdvantage_eq_boolDistAdvantage_coin_branch]
+  · simp [Fintype.card_bool]
+  · simp [Fintype.card_bool]
+  · rw [probOutput_true_add_false,
+      OracleComp.ProgramLogic.Relational.probFailure_evalDist_eq_zero]; simp
+  · rw [probOutput_true_add_false,
+      OracleComp.ProgramLogic.Relational.probFailure_evalDist_eq_zero]; simp
+
 private lemma abs_sub_le_of_mid {a b c εk εr : ℝ} (h1 : |a - b| ≤ εk) (h2 : |b - c| ≤ εr) :
     |a - c| ≤ εk + εr :=
   le_trans (abs_sub_le a b c) (add_le_add h1 h2)
 
 private lemma keyHop_hybrid_bound [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS] [DecidableEq SS]
-    [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [Inhabited G] [Inhabited S] [Inhabited SSK] [Inhabited PQSK]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
@@ -11121,11 +11280,35 @@ private lemma keyHop_hybrid_bound [Field F] [AddCommGroup G] [Module F G] [Sampl
           (kemMatchIdx (cl.1.2.2.1.tSessions.map fun t => TSession.transcript t)
             (extractForgery true cl.1.2.2.1.challenge.transcript) == some j))]).toReal|
       ≤ εkem + 2 * εaead + εkdf := by
-  sorry
+  -- B2 bridge (scoped): the real cell equals the `useReal := true` KEM game.
+  have h1 : (Pr[= true | do
+        let cl ← expLogReal P msg hasOPK A
+        let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestReal P msg hasOPK A cl.1
+        pure (r && !freshKemPredReal P msg hasOPK A cl &&
+          (kemMatchIdx (cl.1.2.2.1.tSessions.map fun t => TSession.transcript t)
+            (extractForgery true cl.1.2.2.1.challenge.transcript) == some j))])
+      = Pr[= true | 𝒟[bjGameKey P msg hasOPK A j true]] := sorry
+  -- εkem step: the two KEM games differ by at most the IND-CCA advantage.
+  have h2 : |(Pr[= true | 𝒟[bjGameKey P msg hasOPK A j true]]).toReal
+        - (Pr[= true | 𝒟[bjGameKey P msg hasOPK A j false]]).toReal| ≤ εkem := by
+    have hb := hkem (kemForgerBj P msg hasOPK A j)
+    rw [kemForgerBj_advantage_eq] at hb
+    simpa [SPMF.boolDistAdvantage] using hb
+  -- hyb → ideal step (scoped): kdf-PRF + two INT-CTXT slivers.
+  have h3 : |(Pr[= true | 𝒟[bjGameKey P msg hasOPK A j false]]).toReal
+        - (Pr[= true | do
+          let cl ← expLogIdeal P msg hasOPK A
+          let r ← ($ᵗ Bool : ProbComp Bool) >>= expRestIdeal P msg hasOPK A cl.1
+          pure (r && !freshKemPred P msg hasOPK A cl &&
+            (kemMatchIdx (cl.1.2.2.1.tSessions.map fun t => TSession.transcript t)
+              (extractForgery true cl.1.2.2.1.challenge.transcript) == some j))]).toReal|
+      ≤ 2 * εaead + εkdf := sorry
+  rw [h1, add_assoc]
+  exact abs_sub_le_of_mid h2 h3
 
 private lemma keyHop_bound [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS] [DecidableEq SS]
-    [Inhabited G] [Inhabited S] [Inhabited SSK]
+    [Inhabited G] [Inhabited S] [Inhabited SSK] [Inhabited PQSK]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
@@ -11289,7 +11472,7 @@ private lemma keyHop_bound [Field F] [AddCommGroup G] [Module F G] [SampleableTy
 theorem uakeInitiator_secure_pq
     [Field F] [AddCommGroup G] [Module F G] [SampleableType F]
     [SampleableType K] [Fintype K] [Inhabited K] [SampleableType SS] [DecidableEq SS]
-    [Inhabited S] [Inhabited SSK]
+    [Inhabited S] [Inhabited SSK] [Inhabited PQSK]
     [DecidableEq G] [DecidableEq PQPK] [DecidableEq CT] [DecidableEq S] [DecidableEq C]
     [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
     (P : Parameters F G SS PQPK PQSK CT SPK SSK S C Msg K IdC IdK) (msg : Msg) (hasOPK : Bool)
