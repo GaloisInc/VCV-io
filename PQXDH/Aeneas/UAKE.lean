@@ -1386,6 +1386,7 @@ theorem uakeInitiator_secure_pq_ofGroupModel
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εkem εaead εkdf : ℝ)
     (hverifyDet : ∀ (pk : SPK) (m : ECKey ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    (hkemCorrect : (pqkem P).PerfectlyCorrect ProbCompRuntime.probComp)
     (hsig : ∀ B : P.sig.unforgeableAdv,
       (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hkem : ∀ B : (pqkem P).IND_CCA_Adversary,
@@ -1397,11 +1398,11 @@ theorem uakeInitiator_secure_pq_ofGroupModel
     (hkdf : ∀ D : PRFScheme.PRFAdversary (ECKey × ECKey × ECKey × Option ECKey)
         (Key × Key × Key),
       kdfPRF.prfAdvantage D ≤ εkdf) :
-    UAKE.advantage A ≤ εsig + q * (εkem + εaead + εkdf) := by
+    UAKE.advantage A ≤ 3 * εsig + q * (εkem + 3 * εaead + εkdf) := by
   rw [advantage_toSpec gen privEnc hM hencTotal hkdfTotal A]
   exact _root_.PQXDH.uakeInitiator_secure_pq (specParams P F gen) msg hasOPK hidKEM
     (A.toSpec gen privEnc) q (opensAtMost_toSpec gen privEnc A hq)
-    εsig εkem εaead εkdf hverifyDet hsig hkem haead
+    εsig εkem εaead εkdf hverifyDet hkemCorrect hsig hkem haead
     (fun D => by rw [kdfPRF_specParams]; exact hkdf D)
 
 theorem uakeInitiator_secure_dh_ofGroupModel
@@ -1447,6 +1448,7 @@ theorem uakeInitiator_secure_pq
     (A : UAKE.Adversary (uakeInitiator P msg hasOPK)) (q : ℕ) (hq : A.OpensAtMost q)
     (εsig εkem εaead εkdf : ℝ)
     (hverifyDet : ∀ (pk : SPK) (m : ECKey ⊕ PQPK) (σ : S), ∃ b, P.sig.verify pk m σ = pure b)
+    (hkemCorrect : (pqkem P).PerfectlyCorrect ProbCompRuntime.probComp)
     (hsig : ∀ B : P.sig.unforgeableAdv,
       (B.strongAdvantage ProbCompRuntime.probComp).toReal ≤ εsig)
     (hkem : ∀ B : (pqkem P).IND_CCA_Adversary,
@@ -1458,7 +1460,7 @@ theorem uakeInitiator_secure_pq
     (hkdf : ∀ D : PRFScheme.PRFAdversary (ECKey × ECKey × ECKey × Option ECKey)
         (Key × Key × Key),
       kdfPRF.prfAdvantage D ≤ εkdf) :
-    UAKE.advantage A ≤ εsig + q * (εkem + εaead + εkdf) := by
+    UAKE.advantage A ≤ 3 * εsig + q * (εkem + 3 * εaead + εkdf) := by
   have hGroupModel : ∃ (F : Type) (_ : Field F) (_ : SampleableType F)
       (_ : AddCommGroup ECKey) (_ : Module F ECKey)
       (gen : ECKey) (privEnc : F → Bytes 32#usize),
@@ -1469,7 +1471,8 @@ theorem uakeInitiator_secure_pq
   obtain ⟨F, iField, iSamp, iGroup, iMod, gen, privEnc, hM⟩ := hGroupModel
   letI := iField; letI := iSamp; letI := iGroup; letI := iMod
   exact uakeInitiator_secure_pq_ofGroupModel P gen privEnc msg hasOPK hM hidKEM A q hq
-    εsig εkem εaead εkdf hverifyDet hsig hkem haead hencTotalAll hkdfTotal hkdf
+    εsig εkem εaead εkdf hverifyDet hkemCorrect hsig hkem haead hencTotalAll hkdfTotal
+    hkdf
 
 theorem uakeInitiator_secure_dh
     [DecidableEq S] [DecidableEq C] [DecidableEq Msg] [DecidableEq IdC] [DecidableEq IdK]
