@@ -31,9 +31,9 @@ variable {m : Type → Type} [Monad m] [MonadAttach m]
   [EvalDistSemantics m]
 
 /-- The runtime observes the chosen lawful semantics, preserves public sampling, and respects
-the computation's structural output set. -/
+the computation's possible outputs. -/
 structure RuntimeCoherent (runtime : ProbCompRuntime m) : Prop where
-  /-- Structural support satisfies the native attachment laws. -/
+  /-- The possible outputs satisfy the attachment laws. -/
   lawfulAttach : LawfulMonadAttach m
   /-- The chosen native interpretation satisfies its pure and measurable bind laws. -/
   lawful : LawfulEvalDistSemantics m
@@ -42,7 +42,7 @@ structure RuntimeCoherent (runtime : ProbCompRuntime m) : Prop where
   /-- Lifting public randomness does not change its distribution. -/
   lift_evalDist_eq : ∀ {α : Type} [MeasurableSpace α] (mx : ProbComp α),
     𝒟[runtime.liftProbComp mx] = 𝒟[mx]
-  /-- Observed outputs are structurally reachable almost surely. -/
+  /-- Observed outputs are possible outputs almost surely. -/
   ae_mem_support : ∀ {α : Type} [MeasurableSpace α] [DiscreteMeasurableSpace α] (mx : m α),
     ∀ᵐ x ∂𝒟[mx], x ∈ support mx
 
