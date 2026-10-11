@@ -610,7 +610,12 @@ theorem evalDist_Exp_relay : 𝒟[Exp ProbCompLift.id relayAdv] {true} = 3 / 4 :
   have hmass : 𝒟[($ᵗ Bool : ProbComp Bool)] {false, true} = 1 := by
     rw [hbool]
     exact measure_univ
-  simpa [hmass] using harith
+  have hnot : 𝒟[not <$> ($ᵗ Bool : ProbComp Bool)] {true} = 2⁻¹ := by
+    rw [evalDist_map_apply_of_discrete _ _ (measurableSet_singleton true),
+      show (not ⁻¹' {true} : Set Bool) = {false} by ext b; cases b <;> simp,
+      SampleableType.evalDist_uniformSample_singleton]
+    simp
+  simpa [hmass, hnot] using harith
 
 theorem evalDist_Exp_relayReveal :
     𝒟[Exp ProbCompLift.id relayRevealAdv] {true} = 1 / 2 := by
