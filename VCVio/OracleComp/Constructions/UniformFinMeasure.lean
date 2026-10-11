@@ -7,7 +7,7 @@ Authors: Devon Tuma
 module
 
 public import VCVio.OracleComp.ProbComp.Basic
-public import VCVio.OracleComp.EvalDist.MeasureSpec
+public import VCVio.OracleComp.EvalDist.AnswerMeasure
 public import VCVio.EvalDist.ProbabilityNotation
 public import ToMathlib.MeasureTheory.Measure.Bounds
 public import ToMathlib.Probability.UniformOn
@@ -15,9 +15,8 @@ public import ToMathlib.Probability.UniformOn
 /-!
 # Measure semantics for finite-range sampling
 
-The finite-range oracle is interpreted by a native uniform measure. Its event law is
-stated directly in the measure-backed probability notation and exposes exact finite
-cardinality only when the event predicate is decidable.
+The finite-range oracle is interpreted by a uniform measure. Its event law is stated with
+`Pr{…}` events and exposes exact finite cardinality only when the event predicate is decidable.
 -/
 
 public section

@@ -114,6 +114,6 @@ example :
       (fun _ : Bool => (2 : ZMod 7))).realTranscript 3 3] =
     𝒟[Schnorr.restrictedSimTranscript (ZMod 7) (ZMod 7) 1
       (fun _ : Bool => (2 : ZMod 7)) 3] := by
-  exact Schnorr.restrictedSigma_hvzk_measure _ _ _ _ _ _ (by decide)
+  exact Schnorr.restrictedSigma_hvzk _ _ _ _ _ _ (by decide)
 
 end SigmaChallengeRestrictionTest

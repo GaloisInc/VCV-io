@@ -5,7 +5,7 @@ Authors: Devon Tuma
 -/
 
 module
-public import VCVio.OracleComp.Constructions.SampleableType.NativeMeasure
+public import VCVio.OracleComp.Constructions.SampleableType.Measure
 public import VCVio.OracleComp.SimSemantics.StateT.Measure
 public import VCVio.OracleComp.QueryTracking.LoggingOracle.Core
 public import VCVio.OracleComp.SimSemantics.OptionT.Basic
@@ -28,9 +28,8 @@ open scoped ENNReal
 
 run_cmd do
   let env ← Lean.getEnv
-  for name in [`PMF, `SPMF, `NeverFail, `EvalDistCompatible, `DiscreteEvalDistCompatible] do
-    if env.contains name then
-      throwError "native event bounds unexpectedly import {name}"
+  if env.contains `PMF then
+    throwError "event bounds unexpectedly import PMF"
 
 namespace VCVioTest.EventBounds
 
@@ -48,6 +47,19 @@ example (mx : m α) (p q : α → Prop) :
 example (mx : m α) (p : Fin 5 → α → Prop) {ε : ℝ≥0∞} (h : ∀ i, Pr{let x ← mx}[p i x] ≤ ε) :
     Pr{let x ← mx}[∃ i, p i x] ≤ 5 * ε := by
   simpa using prEvent_exists_le_card_mul mx p h
+
+/-- A union bound over a three-element finite set. -/
+example (mx : m α) (p : ℕ → α → Prop) {ε : ℝ≥0∞}
+    (h : ∀ i ∈ ({0, 1, 2} : Finset ℕ), Pr{let x ← mx}[p i x] ≤ ε) :
+    Pr{let x ← mx}[∃ i ∈ ({0, 1, 2} : Finset ℕ), p i x] ≤ 3 * ε := by
+  simpa using prEvent_exists_finset_le_card_mul _ mx p h
+
+/-- With at most one index satisfying the predicate, the bound is a single `ε`. -/
+example (mx : m α) (event : ℕ → α → Prop) {ε : ℝ≥0∞}
+    (h : Pr{let x ← mx}[event 7 x] ≤ ε) :
+    Pr{let x ← mx}[∃ i, i = 7 ∧ event i x] ≤ ε :=
+  prEvent_exists_and_le_of_subsingleton mx (· = 7) event (by rintro i rfl; exact h)
+    fun _ ha _ hb ↦ ha.trans hb.symm
 
 example (mx : m α) (p : α → Prop) : Pr{let x ← mx}[p x] ≤ 1 := by simp
 
@@ -141,10 +153,9 @@ section oracleUniverse
 universe u w
 
 variable {ι : Type u} {spec : OracleSpec.{u, w + 1} ι}
-  [∀ t, MeasurableSpace (spec.Range t)] [∀ t, DiscreteMeasurableSpace (spec.Range t)]
 
 /-- The AE sequencing API accepts oracle answers and results strictly above `Type 0`. -/
-example [OracleSpec.IsMeasureSpec spec]
+example [OracleSpec.AnswerMeasure spec]
     {α β : Type (w + 1)} [MeasurableSpace α] [DiscreteMeasurableSpace α] [MeasurableSpace β]
     (mx : OracleComp spec α) (f : α → OracleComp spec β)
     {event : Set β} (hevent : MeasurableSet event)
@@ -153,7 +164,7 @@ example [OracleSpec.IsMeasureSpec spec]
   evalDist_bind_apply_eq_one_of_ae mx f hevent h
 
 /-- The support characterization also accepts oracle answers and results above `Type 0`. -/
-example [OracleSpec.IsUniformMeasureSpec spec]
+example [OracleSpec.UniformAnswerMeasure spec]
     {α : Type (w + 1)} [MeasurableSpace α] [DiscreteMeasurableSpace α]
     (mx : OracleComp spec α) (p : α → Prop) :
     𝒟[mx] {x | p x} = 1 ↔ ∀ x ∈ support mx, p x :=

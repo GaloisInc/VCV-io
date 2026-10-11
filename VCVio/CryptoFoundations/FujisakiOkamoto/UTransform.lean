@@ -8,7 +8,7 @@ module
 public import VCVio.CryptoFoundations.FujisakiOkamoto.TTransform
 public import VCVio.CryptoFoundations.KeyEncapMech
 public import VCVio.CryptoFoundations.PRF
-public import VCVio.OracleComp.Coercions.Add
+public import VCVio.OracleComp.Coercions.Add.Basic
 public import VCVio.OracleComp.SimSemantics.StateT.BundledSemantics
 
 /-!
@@ -60,8 +60,8 @@ def implicitRejection {K C KPRF : Type} (prf : PRFScheme KPRF C K) : RejectionPo
 variant-specific cache after running the public-randomness-plus-hash simulation. -/
 noncomputable def measureSemantics {ι : Type} {hashOracleSpec : OracleSpec ι}
     {M PK C R K : Type} (variant : Variant hashOracleSpec M PK C R K) :
-    MeasureSemanticsVia (OracleComp (unifSpec + hashOracleSpec)) :=
-  MeasureSemanticsVia.withStateOracle variant.queryImpl variant.initCache
+    SemanticsVia (OracleComp (unifSpec + hashOracleSpec)) :=
+  SemanticsVia.withStateOracle variant.queryImpl variant.initCache
 
 /-- Full public-randomness runtime for an FO hash world. -/
 noncomputable def runtime {ι : Type} {hashOracleSpec : OracleSpec ι}

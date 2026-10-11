@@ -6,7 +6,7 @@ Authors: Quang Dao
 
 module
 public import VCVio.OracleComp.SimSemantics.StateT.StateSeparating
-public import VCVio.OracleComp.QueryTracking.LoggingOracle
+public import VCVio.OracleComp.QueryTracking.LoggingOracle.Core
 
 /-! # Persistent oracle runtimes
 
@@ -123,7 +123,7 @@ theorem run_bind (program : OracleComp Surface α)
   simp only [run, runFrom_bind, bind_assoc]
 
 /-- A generated result's output and surface log belong to the original logged program's
-structural support. Stateful interpretation may restrict possible answers, but cannot invent a
+possible outputs. Stateful interpretation may restrict possible answers, but cannot invent a
 surface execution. No probability-spec assumption is required. -/
 theorem mem_support_logged_of_generatedBy (program : OracleComp Surface α)
     (result : RunResult Γ α) (generated : Γ.GeneratedBy program result) :

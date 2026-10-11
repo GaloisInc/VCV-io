@@ -9,7 +9,7 @@ public import PolyFun.Interaction.Basic.Sampler
 public import PolyFun.Interaction.Basic.TypeTreeFintype
 public import PolyFun.Interaction.UC.OpenProcessModel
 public import VCVio.Interaction.UC.Computational
-public import VCVio.OracleComp.Constructions.SampleableType
+public import VCVio.OracleComp.Constructions.SampleableType.Basic
 
 /-!
 # Runtime execution semantics for open processes
@@ -23,7 +23,7 @@ The core runtime primitives (`TypeTree.Sampler`, `samplePath`,
 arbitrary monad `m : Type → Type`. This generality lets the execution
 intermediate monad carry additional capabilities, such as shared oracle
 access (random oracles, CRS, …), while the bundled
-`MeasureSemanticsVia m` fixes how those capabilities are collapsed into the
+`SemanticsVia m` fixes how those capabilities are collapsed into the
 externally visible `Measure Result`.
 
 Common instantiations:
@@ -56,7 +56,7 @@ Common instantiations:
 * `ProcessOver.runSteps` iterates `sample` for a fixed number of steps.
 
 * `UC.processSemantics` constructs a `Semantics (openTheory Party)`
-  from a bundled `MeasureSemanticsVia m`, an initial state, a step sampler,
+  from a bundled `SemanticsVia m`, an initial state, a step sampler,
   a fuel count, and an observation function. The resulting semantics
   observes closed systems through `sem.evalDist`.
 
@@ -189,7 +189,7 @@ and `processSemanticsOracle` for the shared-oracle specialization.
 -/
 noncomputable def processSemantics (Party : Type u) {m : Type → Type} [Monad m] {Result : Type}
     [MeasurableSpace Result]
-    (schedulerSampler : m (ULift Bool)) (sem : MeasureSemanticsVia.{0, 0, 0} m)
+    (schedulerSampler : m (ULift Bool)) (sem : SemanticsVia.{0, 0, 0} m)
     (init : ∀ (p : RuntimeClosed Party m schedulerSampler), p.Proc) (fuel : ℕ)
     (observe : ∀ (p : RuntimeClosed Party m schedulerSampler), p.Proc → m Result) :
     Semantics (openTheory.{u, 0, 0, 0} Party m schedulerSampler) where
@@ -215,7 +215,7 @@ noncomputable def processSemanticsProbComp (Party : Type u) {Result : Type}
     (observe : ∀ (p : RuntimeClosed Party ProbComp schedulerSampler), p.Proc → ProbComp Result) :
     Semantics (openTheory.{u, 0, 0, 0} Party ProbComp schedulerSampler) :=
   processSemantics Party schedulerSampler
-    (MeasureSemanticsVia.ofEvalDistSemantics ProbComp)
+    (SemanticsVia.ofEvalDistSemantics ProbComp)
     init fuel observe
 
 /--
@@ -243,13 +243,13 @@ noncomputable def processSemanticsOracle (Party : Type u) {ι : Type}
     (observe : ∀ (p : RuntimeClosed Party (OracleComp superSpec) schedulerSampler),
       p.Proc → OracleComp superSpec Result) :
     Semantics (openTheory.{u, 0, 0, 0} Party (OracleComp superSpec) schedulerSampler) :=
-  let oracleSem : MeasureSemanticsVia.{0, 0, 0} (OracleComp superSpec) :=
+  let oracleSem : SemanticsVia.{0, 0, 0} (OracleComp superSpec) :=
     { Sem := StateT σ ProbComp
       instMonadSem := inferInstance
       interpret := simulateQ' impl
-      observe := fun {_} {_} mx => (liftM (mx.run' initOracle) : SPMF _).toMeasure
+      observe := fun {_} {_} mx => 𝒟[mx.run' initOracle]
       observe_apply_univ_le_one := fun {_} {_} mx =>
-        SPMF.toMeasure_apply_univ_le_one (liftM (mx.run' initOracle) : SPMF _) }
+        EvalDistSemantics.apply_univ_le_one (mx.run' initOracle) }
   processSemantics Party (m := OracleComp superSpec) schedulerSampler oracleSem
     init fuel observe
 

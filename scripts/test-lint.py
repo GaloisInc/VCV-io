@@ -63,13 +63,13 @@ print("-- Linting passed for " + root + ".")
 
     def test_collection_accepts_reported_new_findings(self):
         tool = self.tool('''import pathlib, sys
-pathlib.Path("scripts/nolints.json").write_text('[["usesRetiredProbability", "A.legacy"]]')
+pathlib.Path("scripts/nolints.json").write_text('[["usesPMF", "A.legacy"]]')
 print("-- Found 1 errors in 1 declarations")
-print("The `usesRetiredProbability` linter reports:")
+print("The `usesPMF` linter reports:")
 sys.exit(1)
 ''')
         self.assertEqual(lint.collect(tool, ["A"], "[]"),
-                         {("usesRetiredProbability", "A.legacy")})
+                         {("usesPMF", "A.legacy")})
 
     def test_acronym_led_underscore_names_are_accepted_by_policy(self):
         for name in ("AsymmEncAlg.IND_CPA_Advantage", "SM_DT_UD_Adversary.State",
@@ -195,7 +195,7 @@ sys.exit(23)
             collect.assert_not_called()
         self.assertEqual(lint.BASELINE.read_bytes(), before)
 
-    def test_retired_probability_findings_are_reviewed_in_baseline_diff(self):
+    def test_retired_probability_additions_are_rejected(self):
         subprocess.run(["git", "init", "-q"], check=True)
         lint.BASELINE.parent.mkdir()
         lint.BASELINE.write_text('[["docBlame", "A.f"]]\n')
@@ -204,10 +204,11 @@ sys.exit(23)
                         "user.email=lint-test@example.invalid", "-c", "commit.gpgSign=false",
                         "commit", "-qm", "Baseline"], check=True)
         lint.BASELINE.write_text('[["docBlame", "A.f"], '
-                                 '["usesRetiredProbability", "A.legacy"]]\n')
-        findings = {("docBlame", "A.f"), ("usesRetiredProbability", "A.legacy")}
+                                 '["usesPMF", "A.legacy"]]\n')
+        findings = {("docBlame", "A.f"), ("usesPMF", "A.legacy")}
         with patch.object(lint, "collect", return_value=findings), \
-                patch.object(lint, "executable", return_value="fake-linter"):
+                patch.object(lint, "executable", return_value="fake-linter"), \
+                self.assertRaisesRegex(ValueError, "additions relative to the merge base"):
             lint.environment(["A"], no_build=True, prune=False, base_ref="HEAD")
 
 

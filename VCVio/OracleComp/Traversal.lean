@@ -252,44 +252,4 @@ lemma someOutputSatisfiesWhen_bind_iff_reachableWhen (outputPred : β → Prop)
   rw [OracleComp.someOutputSatisfiesWhen_bind_iff]
   simp [OracleComp.someOutputSatisfiesWhen_iff_reachableWhen]
 
-@[deprecated "VCVio retiring support API: use allOutputsSatisfyWhen_iff_reachableWhen"
-  (since := "2026-09-14")]
-theorem allOutputsSatisfyWhen_iff_supportWhen (outputPred : α → Prop)
-    (possibleOutputs : (x : spec.Domain) → Set (spec.Range x)) (oa : OracleComp spec α) :
-    allOutputsSatisfyWhen outputPred possibleOutputs oa ↔
-      ∀ x ∈ oa.supportWhen possibleOutputs, outputPred x := by
-  rw [supportWhen_eq_reachableWhen]
-  exact allOutputsSatisfyWhen_iff_reachableWhen outputPred possibleOutputs oa
-
-@[deprecated "VCVio retiring support API: use someOutputSatisfiesWhen_iff_reachableWhen"
-  (since := "2026-09-14")]
-theorem someOutputSatisfiesWhen_iff_supportWhen (outputPred : α → Prop)
-    (possibleOutputs : (x : spec.Domain) → Set (spec.Range x)) (oa : OracleComp spec α) :
-    someOutputSatisfiesWhen outputPred possibleOutputs oa ↔
-      ∃ x ∈ oa.supportWhen possibleOutputs, outputPred x := by
-  rw [supportWhen_eq_reachableWhen]
-  exact someOutputSatisfiesWhen_iff_reachableWhen outputPred possibleOutputs oa
-
-@[deprecated "VCVio retiring support API: use allOutputsSatisfyWhen_bind_iff_reachableWhen"
-  (since := "2026-09-14")]
-theorem allOutputsSatisfyWhen_bind_iff_supportWhen (outputPred : β → Prop)
-    (possibleOutputs : (x : spec.Domain) → Set (spec.Range x))
-    (oa : OracleComp spec α) (ob : α → OracleComp spec β) :
-    (oa >>= ob).allOutputsSatisfyWhen outputPred possibleOutputs ↔
-      ∀ x ∈ oa.supportWhen possibleOutputs,
-        (ob x).allOutputsSatisfyWhen outputPred possibleOutputs := by
-  rw [supportWhen_eq_reachableWhen]
-  exact allOutputsSatisfyWhen_bind_iff_reachableWhen outputPred possibleOutputs oa ob
-
-@[deprecated "VCVio retiring support API: use someOutputSatisfiesWhen_bind_iff_reachableWhen"
-  (since := "2026-09-14")]
-theorem someOutputSatisfiesWhen_bind_iff_supportWhen (outputPred : β → Prop)
-    (possibleOutputs : (x : spec.Domain) → Set (spec.Range x))
-    (oa : OracleComp spec α) (ob : α → OracleComp spec β) :
-    (oa >>= ob).someOutputSatisfiesWhen outputPred possibleOutputs ↔
-      ∃ x ∈ oa.supportWhen possibleOutputs,
-        (ob x).someOutputSatisfiesWhen outputPred possibleOutputs := by
-  rw [supportWhen_eq_reachableWhen]
-  exact someOutputSatisfiesWhen_bind_iff_reachableWhen outputPred possibleOutputs oa ob
-
 end OracleComp

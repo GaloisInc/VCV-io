@@ -13,7 +13,7 @@ FIXTURES = {
     "APIHeap": "VCVioTest/ModuleAPI/Heap.lean",
     "APIVector": "LatticeCryptoTest/Ring/VectorAPI.lean",
     "APIFacade": "VCVioTest/PFunctorFacade.lean",
-    "APINativeWP": "VCVioTest/ProgramLogic/MeasureWP.lean",
+    "APIMeasureWP": "VCVioTest/ProgramLogic/MeasureWP.lean",
     "APICoreWP": "VCVioTest/ProgramLogic/CoreWP.lean",
     "APISupportMeasure": "VCVioTest/OracleComp/SupportMeasure.lean",
     "APIComplexity": "VCVioTest/CryptoFoundations/ComputationalComplexitySoundness.lean",

@@ -20,17 +20,16 @@ and `by_hoare` support in the unary tactic layer.
 open ENNReal OracleSpec OracleComp
 open Lean.Order
 open OracleComp.ProgramLogic
-open scoped OracleComp.ProgramLogic Std.Internal.Do OracleComp.Quantitative
+open scoped OracleComp.ProgramLogic Std.Internal.Do OracleComp.Lower
 
 universe u
 
 variable {ι : Type u} {spec : OracleSpec ι}
 variable {α β γ : Type}
 
-section NativeLowering
+section ProbabilityLowering
 
-variable [∀ t, MeasurableSpace (spec.Range t)]
-  [∀ t, DiscreteMeasurableSpace (spec.Range t)] [OracleSpec.IsMeasureSpec spec]
+variable [OracleSpec.AnswerMeasure spec]
 
 /-! ### Probability goal lowering -/
 
@@ -49,35 +48,35 @@ example {oa : OracleComp spec Bool}
     Pr{let y ← oa}[y = true] = 1 := by
   vcgen
 
-end NativeLowering
+end ProbabilityLowering
 
-section CompatibilityEqualities
+section Equalities
 
-variable [IsUniformSpec spec]
+variable [∀ t, Countable (spec.Range t)] [OracleSpec.AnswerMeasure spec]
 
 /-! ### Probability equality (swap / congr) -/
 
 example {mx : OracleComp spec α} {my : OracleComp spec β}
     {f : α → β → OracleComp spec γ} {z : γ} :
-    Pr[= z | mx >>= fun a => my >>= fun b => f a b] =
-    Pr[= z | my >>= fun b => mx >>= fun a => f a b] := by
+    Pr{let x ← mx >>= fun a => my >>= fun b => f a b}[x = z] =
+    Pr{let x ← my >>= fun b => mx >>= fun a => f a b}[x = z] := by
   vcstep
 
 example {mx : OracleComp spec α} {f g : α → OracleComp spec β} {y : β}
-    (h : ∀ x ∈ support mx, Pr[= y | f x] = Pr[= y | g x]) :
-    Pr[= y | mx >>= f] = Pr[= y | mx >>= g] := by
+    (h : ∀ x ∈ support mx, Pr{let z ← f x}[z = y] = Pr{let z ← g x}[z = y]) :
+    Pr{let x ← mx >>= f}[x = y] = Pr{let x ← mx >>= g}[x = y] := by
   vcstep rw congr
   exact h _ ‹_›
 
 example {mx : OracleComp spec α} {f g : α → OracleComp spec β} {q : β → Prop}
-    (h : ∀ x, Pr[ q | f x] = Pr[ q | g x]) :
-    Pr[ q | mx >>= f] = Pr[ q | mx >>= g] := by
+    (h : ∀ x, Pr{let y ← f x}[q y] = Pr{let y ← g x}[q y]) :
+    Pr{let y ← mx >>= f}[q y] = Pr{let y ← mx >>= g}[q y] := by
   vcstep rw congr'
   exact h _
 
 example {mx : OracleComp spec α} {f g : α → OracleComp spec β} {q : β → Prop}
-    (h : ∀ x, Pr[ q | f x] = Pr[ q | g x]) :
-    Pr[ q | mx >>= f] = Pr[ q | mx >>= g] := by
+    (h : ∀ x, Pr{let y ← f x}[q y] = Pr{let y ← g x}[q y]) :
+    Pr{let y ← mx >>= f}[q y] = Pr{let y ← mx >>= g}[q y] := by
   vcstep rw congr' as ⟨x⟩
   exact h x
 
@@ -88,28 +87,27 @@ info: Try this:
 -/
 #guard_msgs (info) in
 example {mx : OracleComp spec α} {f g : α → OracleComp spec β} {q : β → Prop}
-    (h : ∀ x, Pr[ q | f x] = Pr[ q | g x]) :
-    Pr[ q | mx >>= f] = Pr[ q | mx >>= g] := by
+    (h : ∀ x, Pr{let y ← f x}[q y] = Pr{let y ← g x}[q y]) :
+    Pr{let y ← mx >>= f}[q y] = Pr{let y ← mx >>= g}[q y] := by
   vcstep?
   exact h x
 
 example {mx : OracleComp spec α} {my : OracleComp spec β}
     {f g : α → β → OracleComp spec γ} {q : γ → Prop}
-    (h : ∀ x y, Pr[ q | f x y] = Pr[ q | g x y]) :
-    Pr[ q | mx >>= fun x => my >>= fun y => f x y] =
-    Pr[ q | mx >>= fun x => my >>= fun y => g x y] := by
+    (h : ∀ x y, Pr{let r ← f x y}[q r] = Pr{let r ← g x y}[q r]) :
+    Pr{let r ← mx >>= fun x => my >>= fun y => f x y}[q r] =
+    Pr{let r ← mx >>= fun x => my >>= fun y => g x y}[q r] := by
   vcstep rw congr' as ⟨x, y⟩
   exact h x y
 
 example : 𝟙⟦(True : Prop)⟧ * 𝟙⟦(True : Prop)⟧ = (1 : ℝ≥0∞) := by
   exp_norm
 
-end CompatibilityEqualities
+end Equalities
 
-section NativeLowering
+section ProbabilityLowering
 
-variable [∀ t, MeasurableSpace (spec.Range t)]
-  [∀ t, DiscreteMeasurableSpace (spec.Range t)] [OracleSpec.IsMeasureSpec spec]
+variable [OracleSpec.AnswerMeasure spec]
 
 /-! ### Probability lower bounds -/
 
@@ -170,8 +168,8 @@ example (oa : OracleComp spec α) (f : α → OracleComp spec Bool)
   vcstep
   intro x
   by_cases hx : x ∈ support oa
-  · simpa [propInd, hx] using triple_probOutput_eq_one (oa := f x) (x := true) (h := h x hx)
+  · simpa [propInd, hx] using triple_prEvent_eq_one (oa := f x) (p := (· = true)) (h := h x hx)
   · simpa [propInd, hx] using
       triple_zero (oa := f x) (post := fun y => if y = true then 1 else 0)
 
-end NativeLowering
+end ProbabilityLowering

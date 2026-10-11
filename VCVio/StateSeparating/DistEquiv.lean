@@ -1,234 +1,216 @@
 /-
-Copyright (c) 2026 Quang Dao. All rights reserved.
+Copyright (c) 2026 Devon Tuma. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
-Authors: Quang Dao
+Authors: Devon Tuma
 -/
 
 module
-public import VCVio.StateSeparating.Advantage
-public import VCVio.StateSeparating.MeasureDistEquiv
-public import VCVio.OracleComp.Coercions.SubSpec
+
+public import VCVio.OracleComp.SimSemantics.StateT.StateSeparating
+public import VCVio.OracleComp.SimSemantics.StateT.Measure
+public import VCVio.OracleComp.EvalDist.Measure
+public import VCVio.EvalDist.ProbabilityNotation
+public import VCVio.StateSeparating.Advantage.Measure
+public import VCVio.OracleComp.Coercions.SubSpec.Measure
 
 /-!
-# State-separating handlers: distributional equivalence
+# Measure equivalence of stateful handlers
 
-`QueryImpl.Stateful.DistEquiv h₀ s₀ h₁ s₁` says that two stateful handlers,
-started from explicit initial states, produce the same output distribution
-against every client computation.
+Two handlers are equivalent when every adaptive client has the same successful-output measure.
+The interpretation can be weighted and need not assign positive mass to each possible
+answer. Local contracts retain the joint response/state measure because later calls may observe
+private state.
 -/
 
-@[expose] public section
+public section
 
-universe uᵢ uₑ uₘ
+open OracleSpec OracleComp MeasureTheory
 
-open OracleSpec OracleComp
+universe u v
 
 namespace QueryImpl.Stateful
 
-variable {ιᵢ : Type uᵢ} {I : OracleSpec.{uᵢ, 0} ιᵢ}
-variable {ιₑ : Type uₑ} {E : OracleSpec.{uₑ, 0} ιₑ}
+variable {ι : Type u} {I : OracleSpec.{u, 0} ι}
+  {ε : Type v} {E : OracleSpec.{v, 0} ε} {σ σ₀ σ₁ σ₂ : Type}
+  [EvalDistSemantics (OracleComp I)]
 
-/-- Perfect distributional equivalence of two stateful handlers from explicit
-initial states. -/
-@[deprecated "VCVio retiring probability API: use MeasureDistEquiv" (since := "2026-09-17")]
-def DistEquiv [IsUniformSpec I] {σ₀ σ₁ : Type}
-    (h₀ : QueryImpl.Stateful I E σ₀) (s₀ : σ₀)
-    (h₁ : QueryImpl.Stateful I E σ₁) (s₁ : σ₁) : Prop :=
-  ∀ {α : Type} (A : OracleComp E α),
-    𝒮[h₀.run s₀ A] = 𝒮[h₁.run s₁ A]
+/-- Every adaptive client observes equal measures from the two initial handler states. -/
+@[expose] def DistEquiv (left : Stateful I E σ₀) (s₀ : σ₀)
+    (right : Stateful I E σ₁) (s₁ : σ₁) : Prop :=
+  ∀ {α : Type} [MeasurableSpace α] (client : OracleComp E α),
+    𝒟[left.run s₀ client] = 𝒟[right.run s₁ client]
 
 @[inherit_doc DistEquiv]
 scoped notation:50 "(" h₀ ", " s₀ ")" " ≡ᵈ " "(" h₁ ", " s₁ ")" =>
   QueryImpl.Stateful.DistEquiv h₀ s₀ h₁ s₁
 
-/-- Perfect distributional equivalence from default initial states. -/
-@[deprecated "VCVio retiring probability API: use MeasureDistEquiv with default states"
-  (since := "2026-09-17")]
-def DistEquiv₀ [IsUniformSpec I] {σ₀ σ₁ : Type}
-    [Inhabited σ₀] [Inhabited σ₁]
-    (h₀ : QueryImpl.Stateful I E σ₀) (h₁ : QueryImpl.Stateful I E σ₁) : Prop :=
-  QueryImpl.Stateful.DistEquiv h₀ default h₁ default
+/-- Every adaptive client observes equal measures from the default initial handler states. -/
+@[expose] def DistEquiv₀ [Inhabited σ₀] [Inhabited σ₁] (left : Stateful I E σ₀)
+    (right : Stateful I E σ₁) : Prop :=
+  DistEquiv left default right default
 
 @[inherit_doc DistEquiv₀]
 scoped infix:50 " ≡ᵈ₀ " => QueryImpl.Stateful.DistEquiv₀
 
 namespace DistEquiv
 
-variable {σ σ₀ σ₁ σ₂ : Type}
-variable [IsUniformSpec I]
+/-- Equivalent handlers have equal measures for each measurable client observation. -/
+theorem run_evalDist_eq {left : Stateful I E σ₀} {right : Stateful I E σ₁}
+    {s₀ : σ₀} {s₁ : σ₁} (h : DistEquiv left s₀ right s₁)
+    {α : Type} [MeasurableSpace α] (client : OracleComp E α) :
+    𝒟[left.run s₀ client] = 𝒟[right.run s₁ client] := h client
 
-private lemma simulateQ_StateT_evalSPMF_congr_import {α : Type}
-    {h₀ h₁ : QueryImpl E (StateT σ (OracleComp I))}
-    (hh : ∀ (q : E.Domain) (s : σ),
-      𝒮[(h₀ q).run s] = 𝒮[(h₁ q).run s])
-    (A : OracleComp E α) (s : σ) :
-    𝒮[(simulateQ h₀ A).run s] = 𝒮[(simulateQ h₁ A).run s] := by
-  induction A using OracleComp.inductionOn generalizing s with
-  | pure x => simp
-  | query_bind t k ih =>
+/-- Equivalent handlers run every client to computations equal in distribution. -/
+theorem run_evalDistEq [LawfulEvalDistSemantics (OracleComp I)] {left : Stateful I E σ₀}
+    {right : Stateful I E σ₁} {s₀ : σ₀} {s₁ : σ₁} (h : DistEquiv left s₀ right s₁)
+    {α : Type} (client : OracleComp E α) : left.run s₀ client =ᵈ right.run s₁ client :=
+  letI : MeasurableSpace α := ⊤
+  EvalDistEq.of_evalDist_eq (h client)
+
+/-- Equality of all client observations establishes handler equivalence. -/
+theorem of_run_evalDist_eq {left : Stateful I E σ₀} {right : Stateful I E σ₁}
+    {s₀ : σ₀} {s₁ : σ₁}
+    (h : ∀ {α : Type} [MeasurableSpace α] (client : OracleComp E α),
+      𝒟[left.run s₀ client] = 𝒟[right.run s₁ client]) :
+    DistEquiv left s₀ right s₁ := h
+
+protected theorem refl (handler : Stateful I E σ) (state : σ) :
+    DistEquiv handler state handler state := fun _ ↦ rfl
+
+protected theorem symm {left : Stateful I E σ₀} {right : Stateful I E σ₁}
+    {s₀ : σ₀} {s₁ : σ₁} (h : DistEquiv left s₀ right s₁) :
+    DistEquiv right s₁ left s₀ := fun client ↦ (h client).symm
+
+protected theorem trans {left : Stateful I E σ₀} {middle : Stateful I E σ₁}
+    {right : Stateful I E σ₂} {s₀ : σ₀} {s₁ : σ₁} {s₂ : σ₂}
+    (h₀ : DistEquiv left s₀ middle s₁)
+    (h₁ : DistEquiv middle s₁ right s₂) :
+    DistEquiv left s₀ right s₂ := fun client ↦ (h₀ client).trans (h₁ client)
+
+/-- Equal executions induce equal observations. -/
+theorem of_run_eq {left : Stateful I E σ₀} {right : Stateful I E σ₁}
+    {s₀ : σ₀} {s₁ : σ₁}
+    (h : ∀ {α : Type} (client : OracleComp E α),
+      left.run s₀ client = right.run s₁ client) :
+    DistEquiv left s₀ right s₁ := fun client ↦ congrArg evalDist (h client)
+
+/-- Local equality of the joint response and state measures lifts through every client. -/
+theorem of_step [LawfulEvalDistSemantics (OracleComp I)] {left right : Stateful I E σ}
+    (h : ∀ operation state, (left operation).run state =ᵈ (right operation).run state)
+    (state : σ) : DistEquiv left state right state := by
+  intro α _ client
+  let : MeasurableSpace σ := ⊤
+  simp only [Stateful.run, StateT.run'_eq, _root_.evalDist_map _ measurable_fst]
+  exact congrArg (Measure.map Prod.fst)
+    (evalDist_simulateQ_run_congr left right h client state)
+
+omit [EvalDistSemantics (OracleComp I)] in
+/-- Transporting a handler's state along an equivalence does not change what a client
+observes: simulating with the transported handler is the original simulation with the final
+state mapped back. -/
+private theorem simulateQ_run_transport {left : Stateful I E σ₁} (φ : σ₀ ≃ σ₁)
+    {α : Type} (client : OracleComp E α) (state : σ₀) :
+    (simulateQ (fun operation ↦ StateT.mk fun s ↦
+        Prod.map id φ.symm <$> (left operation).run (φ s)) client).run state =
+      Prod.map id φ.symm <$> (simulateQ left client).run (φ state) := by
+  induction client using OracleComp.inductionOn generalizing state with
+  | pure value => simp
+  | query_bind operation next ih =>
     simp only [simulateQ_bind, simulateQ_query, OracleQuery.cont_query, OracleQuery.input_query,
-      id_map, StateT.run_bind, evalSPMF_bind, hh t s]
-    exact bind_congr fun p => ih p.1 p.2
+      id_map, StateT.run_bind, StateT.run_mk, bind_map_left, map_bind, Prod.map_fst, id_eq,
+      Prod.map_snd]
+    refine congrArg _ (funext fun output ↦ ?_)
+    rw [ih, Equiv.apply_symm_apply]
 
-/-! ## Relation laws -/
+/-- Local measure equality up to a state equivalence lifts through every client. -/
+theorem of_step_bij [LawfulEvalDistSemantics (OracleComp I)] {left : Stateful I E σ₀}
+    {right : Stateful I E σ₁} (φ : σ₀ ≃ σ₁)
+    (h : ∀ operation state,
+      (left operation).run state =ᵈ Prod.map id φ.symm <$> (right operation).run (φ state))
+    (state : σ₀) : DistEquiv left state right (φ state) := by
+  let transported : Stateful I E σ₀ := fun operation ↦ StateT.mk fun s ↦
+    Prod.map id φ.symm <$> (right operation).run (φ s)
+  have hstep : DistEquiv left state transported state :=
+    of_step (fun operation s ↦ h operation s) state
+  intro α _ client
+  refine (hstep client).trans (congrArg evalDist ?_)
+  simp only [Stateful.run, StateT.run'_eq, transported, simulateQ_run_transport,
+    Functor.map_map, Prod.map_fst, id_eq]
 
-protected theorem refl (h : QueryImpl.Stateful I E σ) (s : σ) :
-    (h, s) ≡ᵈ (h, s) := fun _ => rfl
+/-- Equivalent handlers assign equal mass to every observable event. -/
+theorem prEvent_eq [LawfulEvalDistSemantics (OracleComp I)]
+    {left : Stateful I E σ₀} {right : Stateful I E σ₁}
+    {s₀ : σ₀} {s₁ : σ₁} (h : DistEquiv left s₀ right s₁)
+    {α : Type} (client : OracleComp E α) (event : α → Prop) :
+    Pr{let output ← left.run s₀ client}[event output] =
+      Pr{let output ← right.run s₁ client}[event output] := by
+  let : MeasurableSpace α := ⊤
+  rw [prEvent_eq_evalDist_of_discrete, prEvent_eq_evalDist_of_discrete, h client]
 
-protected theorem symm
-    {h₀ : QueryImpl.Stateful I E σ₀} {s₀ : σ₀}
-    {h₁ : QueryImpl.Stateful I E σ₁} {s₁ : σ₁}
-    (h : (h₀, s₀) ≡ᵈ (h₁, s₁)) : (h₁, s₁) ≡ᵈ (h₀, s₀) :=
-  fun A => (h A).symm
+/-- Boolean distinguishing advantage vanishes for equivalent probability-only handlers. -/
+theorem boolDist_eq_zero
+    {left : Stateful unifSpec E σ₀} {right : Stateful unifSpec E σ₁}
+    {s₀ : σ₀} {s₁ : σ₁} (h : DistEquiv left s₀ right s₁)
+    (client : OracleComp E Bool) :
+    𝒟[left.run s₀ client].boolDist 𝒟[right.run s₁ client] = 0 := by
+  simp [h client]
 
-protected theorem trans
-    {h₀ : QueryImpl.Stateful I E σ₀} {s₀ : σ₀}
-    {h₁ : QueryImpl.Stateful I E σ₁} {s₁ : σ₁}
-    {h₂ : QueryImpl.Stateful I E σ₂} {s₂ : σ₂}
-    (h₀₁ : (h₀, s₀) ≡ᵈ (h₁, s₁)) (h₁₂ : (h₁, s₁) ≡ᵈ (h₂, s₂)) :
-    (h₀, s₀) ≡ᵈ (h₂, s₂) :=
-  fun A => (h₀₁ A).trans (h₁₂ A)
+/-- Equivalent handlers may replace the left experiment in a distinguishing bound. -/
+theorem advantage_left {left : Stateful unifSpec E σ₀} {left' : Stateful unifSpec E σ₂}
+    {s₀ : σ₀} {s₀' : σ₂}
+    (h : DistEquiv left s₀ left' s₀') (right : Stateful unifSpec E σ₁) (s₁ : σ₁)
+    (client : OracleComp E Bool) :
+    left.advantage s₀ right s₁ client = left'.advantage s₀' right s₁ client :=
+  advantage_eq_of_evalDist_run_eq (h client)
 
-/-! ## Constructors -/
+/-- Equivalent handlers may replace the right experiment in a distinguishing bound. -/
+theorem advantage_right (left : Stateful unifSpec E σ₀) (s₀ : σ₀)
+    {right : Stateful unifSpec E σ₁} {right' : Stateful unifSpec E σ₂}
+    {s₁ : σ₁} {s₁' : σ₂}
+    (h : DistEquiv right s₁ right' s₁') (client : OracleComp E Bool) :
+    left.advantage s₀ right s₁ client = left.advantage s₀ right' s₁' client :=
+  advantage_eq_of_evalDist_run_eq_right (h client)
 
-theorem of_run_evalSPMF
-    {h₀ : QueryImpl.Stateful I E σ₀} {s₀ : σ₀}
-    {h₁ : QueryImpl.Stateful I E σ₁} {s₁ : σ₁}
-    (h : ∀ {α : Type} (A : OracleComp E α),
-      𝒮[h₀.run s₀ A] = 𝒮[h₁.run s₁ A]) :
-    (h₀, s₀) ≡ᵈ (h₁, s₁) := fun A => h A
+/-- Equivalent probability-only handlers have zero distinguishing advantage. -/
+theorem advantage_eq_zero {left : Stateful unifSpec E σ₀} {right : Stateful unifSpec E σ₁}
+    {s₀ : σ₀} {s₁ : σ₁} (h : DistEquiv left s₀ right s₁)
+    (client : OracleComp E Bool) : left.advantage s₀ right s₁ client = 0 :=
+  h.boolDist_eq_zero client
 
-theorem run_evalSPMF_eq
-    {h₀ : QueryImpl.Stateful I E σ₀} {s₀ : σ₀}
-    {h₁ : QueryImpl.Stateful I E σ₁} {s₁ : σ₁}
-    (h : (h₀, s₀) ≡ᵈ (h₁, s₁)) {α : Type} (A : OracleComp E α) :
-    𝒮[h₀.run s₀ A] = 𝒮[h₁.run s₁ A] := h A
-
-theorem run₀_evalSPMF_eq
-    {h₀ : QueryImpl.Stateful I E σ₀} {h₁ : QueryImpl.Stateful I E σ₁}
-    [Inhabited σ₀] [Inhabited σ₁]
-    (h : h₀ ≡ᵈ₀ h₁) {α : Type} (A : OracleComp E α) :
-    𝒮[h₀.run₀ A] = 𝒮[h₁.run₀ A] :=
-  h A
-
-theorem runProb_evalSPMF_eq
-    {h₀ : QueryImpl.Stateful unifSpec E σ₀} {s₀ : σ₀}
-    {h₁ : QueryImpl.Stateful unifSpec E σ₁} {s₁ : σ₁}
-    (h : (h₀, s₀) ≡ᵈ (h₁, s₁)) {α : Type} (A : OracleComp E α) :
-    𝒮[h₀.runProb s₀ A] = 𝒮[h₁.runProb s₁ A] := by
-  simpa only [runProb_eq_run] using h A
-
-theorem runProb₀_evalSPMF_eq
-    {h₀ : QueryImpl.Stateful unifSpec E σ₀} {h₁ : QueryImpl.Stateful unifSpec E σ₁}
-    [Inhabited σ₀] [Inhabited σ₁]
-    (h : h₀ ≡ᵈ₀ h₁) {α : Type} (A : OracleComp E α) :
-    𝒮[h₀.runProb₀ A] = 𝒮[h₁.runProb₀ A] := by
-  simpa only [runProb₀] using run₀_evalSPMF_eq h A
-
-theorem of_run_eq
-    {h₀ : QueryImpl.Stateful I E σ₀} {s₀ : σ₀}
-    {h₁ : QueryImpl.Stateful I E σ₁} {s₁ : σ₁}
-    (h : ∀ {α : Type} (A : OracleComp E α), h₀.run s₀ A = h₁.run s₁ A) :
-    (h₀, s₀) ≡ᵈ (h₁, s₁) :=
-  fun A => by rw [h A]
-
-theorem of_step
-    {h₀ h₁ : QueryImpl.Stateful I E σ}
-    (h_impl : ∀ (q : E.Domain) (s : σ),
-      𝒮[(h₀ q).run s] = 𝒮[(h₁ q).run s])
-    (s₀ : σ) :
-    (h₀, s₀) ≡ᵈ (h₁, s₀) := by
-  intro α A
-  simp only [QueryImpl.Stateful.run, StateT.run'_eq, evalSPMF_map]
-  exact congrArg _ (simulateQ_StateT_evalSPMF_congr_import h_impl A s₀)
-
-theorem of_step_bij
-    (h₀ : QueryImpl.Stateful unifSpec E σ₀)
-    (h₁ : QueryImpl.Stateful unifSpec E σ₁) (φ : σ₀ ≃ σ₁)
-    (h_impl : ∀ (q : E.Domain) (s : σ₀),
-      𝒮[(h₀ q).run s] =
-        𝒮[Prod.map id φ.symm <$> (h₁ q).run (φ s)])
-    (s₀ : σ₀) :
-    (h₀, s₀) ≡ᵈ (h₁, φ s₀) := by
-  intro α A
-  simp only [QueryImpl.Stateful.run, StateT.run'_eq, evalSPMF_map,
-    simulateQ_StateT_evalSPMF_congr_of_bij h₀ h₁ φ h_impl A s₀, Functor.map_map, Prod.map_fst,
-    id_eq]
-
-/-! ## Bridge to advantage -/
-
-theorem advantage_left
-    {h₀ : QueryImpl.Stateful unifSpec E σ₀} {s₀ : σ₀}
-    {h₀' : QueryImpl.Stateful unifSpec E σ} {s₀' : σ}
-    (h : (h₀, s₀) ≡ᵈ (h₀', s₀'))
-    (h₁ : QueryImpl.Stateful unifSpec E σ₁) (s₁ : σ₁) (A : OracleComp E Bool) :
-    h₀.advantage s₀ h₁ s₁ A = h₀'.advantage s₀' h₁ s₁ A :=
-  advantage_eq_of_evalSPMF_runProb_eq (h A)
-
-theorem advantage_right
-    (h₀ : QueryImpl.Stateful unifSpec E σ₀) (s₀ : σ₀)
-    {h₁ : QueryImpl.Stateful unifSpec E σ₁} {s₁ : σ₁}
-    {h₁' : QueryImpl.Stateful unifSpec E σ} {s₁' : σ}
-    (h : (h₁, s₁) ≡ᵈ (h₁', s₁')) (A : OracleComp E Bool) :
-    h₀.advantage s₀ h₁ s₁ A = h₀.advantage s₀ h₁' s₁' A :=
-  advantage_eq_of_evalSPMF_runProb_eq_right (h A)
-
-theorem advantage_zero
-    {h₀ : QueryImpl.Stateful unifSpec E σ₀} {s₀ : σ₀}
-    {h₁ : QueryImpl.Stateful unifSpec E σ₁} {s₁ : σ₁}
-    (h : (h₀, s₀) ≡ᵈ (h₁, s₁)) (A : OracleComp E Bool) :
-    h₀.advantage s₀ h₁ s₁ A = 0 := by
-  rw [advantage_left h h₁ s₁ A, advantage_self]
-
-/-! ## Compositional congruences -/
-
-section LinkCongr
-
-variable {ιₘ : Type uₘ} {M : OracleSpec.{uₘ, 0} ιₘ}
-variable {σ_P : Type}
-
-/-- `link` congruence on the inner handler: an inner-handler equivalence lifts to
-an equivalence of the linked handlers with matching outer state and initial state. -/
-theorem link_inner_congr (outer : QueryImpl.Stateful M E σ_P) (sP : σ_P)
-    {inner₀ : QueryImpl.Stateful unifSpec M σ₀} {s₀ : σ₀}
-    {inner₁ : QueryImpl.Stateful unifSpec M σ₁} {s₁ : σ₁}
-    (h : (inner₀, s₀) ≡ᵈ (inner₁, s₁)) :
-    (outer.link inner₀, (sP, s₀)) ≡ᵈ (outer.link inner₁, (sP, s₁)) := by
-  intro α A
+/-- An equivalent inner handler preserves observations through a matching outer handler. -/
+theorem link_inner_congr {μ : Type} {M : OracleSpec μ} {τ : Type}
+    (outer : Stateful M E τ) (state : τ)
+    {left : Stateful I M σ₀} {right : Stateful I M σ₁} {s₀ : σ₀} {s₁ : σ₁}
+    (h : DistEquiv left s₀ right s₁) :
+    DistEquiv (outer.link left) (state, s₀) (outer.link right) (state, s₁) := by
+  intro α _ client
   rw [run_link_eq_run_shiftLeft, run_link_eq_run_shiftLeft]
-  exact h (outer.shiftLeft sP A)
+  exact h (outer.shiftLeft state client)
 
-end LinkCongr
+section parSum
 
-section ParCongr
+variable {ι₁ ι₂ : Type u} {I₁ : OracleSpec.{u, 0} ι₁} {I₂ : OracleSpec.{u, 0} ι₂}
+  [OracleSpec.UniformAnswerMeasure I₁] [OracleSpec.UniformAnswerMeasure I₂]
+  {ε₁ ε₂ : Type v} {E₁ : OracleSpec.{v, 0} ε₁} {E₂ : OracleSpec.{v, 0} ε₂}
 
-variable {ιᵢ₁ : Type uₘ} {ιᵢ₂ : Type uₘ}
-  {I₁ : OracleSpec.{uₘ, 0} ιᵢ₁} {I₂ : OracleSpec.{uₘ, 0} ιᵢ₂}
-  [IsUniformSpec I₁] [IsUniformSpec I₂]
-  {ιₑ₁ : Type uₑ} {ιₑ₂ : Type uₑ}
-  {E₁ : OracleSpec.{uₑ, 0} ιₑ₁} {E₂ : OracleSpec.{uₑ, 0} ιₑ₂}
-  {σ₁ σ₂ : Type}
+/-- Parallel composition preserves local measure equality of both factors, over uniform import
+interfaces. -/
+theorem parSum_congr {h₁ h₁' : Stateful I₁ E₁ σ₁} {h₂ h₂' : Stateful I₂ E₂ σ₂}
+    (hh₁ : ∀ operation state, (h₁ operation).run state =ᵈ (h₁' operation).run state)
+    (hh₂ : ∀ operation state, (h₂ operation).run state =ᵈ (h₂' operation).run state)
+    (s₁ : σ₁) (s₂ : σ₂) :
+    DistEquiv (h₁.parSum h₂) (s₁, s₂) (h₁'.parSum h₂') (s₁, s₂) := by
+  refine of_step (fun operation state ↦ ?_) (s₁, s₂)
+  obtain ⟨a, b⟩ := state
+  rcases operation with t | t
+  · rw [parSum_apply_inl_run, parSum_apply_inl_run]
+    exact EvalDistEq.map (((evalDistEq_liftComp_uniform _).trans (hh₁ t a)).trans
+      (evalDistEq_liftComp_uniform _).symm) _
+  · rw [parSum_apply_inr_run, parSum_apply_inr_run]
+    exact EvalDistEq.map (((evalDistEq_liftComp_uniform _).trans (hh₂ t b)).trans
+      (evalDistEq_liftComp_uniform _).symm) _
 
-/-- `parSum` congruence on both sides from per-factor handler equivalences with
-explicit initial states. -/
-theorem parSum_congr
-    {h₁ h₁' : QueryImpl.Stateful I₁ E₁ σ₁} {s₁ : σ₁}
-    {h₂ h₂' : QueryImpl.Stateful I₂ E₂ σ₂} {s₂ : σ₂}
-    (hh₁ : ∀ (q : E₁.Domain) (s : σ₁),
-      𝒮[(h₁ q).run s] = 𝒮[(h₁' q).run s])
-    (hh₂ : ∀ (q : E₂.Domain) (s : σ₂),
-      𝒮[(h₂ q).run s] = 𝒮[(h₂' q).run s]) :
-    (h₁.parSum h₂, (s₁, s₂)) ≡ᵈ (h₁'.parSum h₂', (s₁, s₂)) := by
-  refine of_step ?_ (s₁, s₂)
-  intro q s
-  rcases q with t | t
-  · exact evalSPMF_map_eq_of_evalSPMF_eq
-      ((evalSPMF_liftComp _).trans ((hh₁ t s.1).trans (evalSPMF_liftComp _).symm)) _
-  · exact evalSPMF_map_eq_of_evalSPMF_eq
-      ((evalSPMF_liftComp _).trans ((hh₂ t s.2).trans (evalSPMF_liftComp _).symm)) _
-
-end ParCongr
+end parSum
 
 end DistEquiv
-
 end QueryImpl.Stateful

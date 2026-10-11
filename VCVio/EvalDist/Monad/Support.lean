@@ -10,7 +10,7 @@ public import VCVio.EvalDist.Defs.Support
 public import VCVio.Prelude.Core
 
 /-!
-# Structural support under monadic operations
+# Possible outputs under monadic operations
 
 Pure, bind, and map preserve operational reachability through `ExactMonadAttach`.
 Finite-support equations add enumeration assumptions without choosing probabilities.

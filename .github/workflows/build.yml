@@ -56,6 +56,9 @@ jobs:
         if: github.event_name == 'pull_request'
         run: bash scripts/check-expose-boundary.sh --report "origin/${{ github.base_ref }}"
 
+      - name: Test downstream probability codemod
+        run: python3 scripts/test-migrate-native-probability.py
+
       - name: Check optional complexity backend isolation
         run: |
           bash scripts/test-complexity-backend-isolation.sh
@@ -209,14 +212,14 @@ jobs:
             echo '-- `public import`: the universe example below is a `public` declaration, so'
             echo '-- the names in its type must be publicly imported, not just privately visible.'
             echo 'public import VCVio'
-            echo 'public import VCVio.EvalDist.PFunctor'
+            echo 'public import VCVio.EvalDist.PFunctorMeasure.Core'
             echo 'public import SchemeAPI'
             echo 'public import CountingAPI'
             echo 'public import CacheAPI'
             echo 'public import FinalValidityAPI'
             echo ''
             echo '#check OracleComp'
-            echo '#check PFunctor.IsProbabilitySpec'
+            echo '#check PFunctor.AnswerMeasure'
             echo '#check PFunctor.Handler.preInsert'
             echo ''
             echo '-- A downstream consumer whose oracle responses do not live in `Type 0`.'
@@ -355,7 +358,6 @@ jobs:
             --path-prefix Examples.lean \
             --path-prefix VCVioWidgets.lean \
             --exclude-substring 'declaration uses `sorry`' \
-            --exclude-substring 'VCVio retiring probability API' \
             --label 'repository non-sorry warnings'
       - name: Time test module
         run: |
@@ -392,6 +394,12 @@ jobs:
         run: ./scripts/test-initsweep.sh
       - name: Init sweep
         run: lake exe initsweep --check
+      # The guides cite declarations by name; `lake exe docnames` resolves every cited name
+      # against the oleans the build above produced, and the fixtures show the gate can fail.
+      - name: Test the documentation name checker
+        run: bash scripts/test-docnames.sh
+      - name: Check documentation names
+        run: python3 scripts/check-doc-names.py --resolve
       # `lake test` runs the `test` script from `lakefile.lean`: it builds the three test
       # libraries (every module reachable from `VCVioTest.lean`, the Lean-only lattice helpers
       # and vectors, the SLH-DSA canaries) and runs the smoke test and the SLH-DSA test
@@ -414,7 +422,6 @@ jobs:
             --path-prefix LatticeCryptoTest/ \
             --path-prefix LatticeCryptoTest.lean \
             --path-prefix HashSigTest/ \
-            --exclude-substring 'VCVio retiring probability API' \
             --label 'test-library warnings'
       # The same ratchet over the test libraries, which only exist as oleans once `lake
       # test` has built them — the incident this gate exists for would have been just as

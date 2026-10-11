@@ -27,7 +27,7 @@ namespace OracleComp
 
 variable {ι : Type u} {spec : OracleSpec.{u, v} ι} {α β : Type v}
 
-section supportWhen
+section reachableWhen
 
 /-- Outputs reachable when a query may return any response selected by `o`. -/
 def reachableWhen (o : QueryImpl spec Set) (mx : OracleComp spec α) : Set α :=
@@ -76,67 +76,6 @@ theorem reachableWhen_univ_eq_support (oa : OracleComp spec α) :
   simpa [reachableWhen, PFunctor.FreeM.reachable] using
     (PFunctor.FreeM.reachable_eq_support oa)
 
-/-- The `SetM` interpretation of possible outputs under a query-response assignment. -/
-@[deprecated "VCVio retiring support API: use reachableWhen" (since := "2026-09-14")]
-def supportWhen (o : QueryImpl spec Set) (mx : OracleComp spec α) : Set α :=
-  SetM.run (simulateQ (r := SetM) (fun t => SetM.ofSet (o t)) mx)
-
-@[deprecated "VCVio retiring support API: use reachableWhen_pure" (since := "2026-09-14"), simp]
-lemma supportWhen_pure (o : QueryImpl spec Set) (x : α) :
-    supportWhen o (pure x : OracleComp spec α) = {x} := by
-  unfold supportWhen
-  rw [simulateQ_pure, SetM.run_pure]
-
-@[deprecated "VCVio retiring support API: use reachableWhen_query_bind"
-  (since := "2026-09-14")]
-lemma supportWhen_query_bind (o : QueryImpl spec Set) (q : spec.Domain)
-    (oa : spec.Range q → OracleComp spec α) :
-    supportWhen o ((query q : OracleComp spec _) >>= oa) =
-      ⋃ x ∈ o q, supportWhen o (oa x) := by
-  unfold supportWhen
-  rw [simulateQ_bind, simulateQ_spec_query, SetM.run_bind, SetM.run_ofSet]
-
-/-- Reachable outputs of a bind are the reachable outputs of the continuation over reachable
-outputs of the first computation. -/
-@[deprecated "VCVio retiring support API: use reachableWhen_bind" (since := "2026-09-14"), simp]
-lemma supportWhen_bind (o : QueryImpl spec Set) (oa : OracleComp spec α)
-    (ob : α → OracleComp spec β) :
-    supportWhen o (oa >>= ob) = ⋃ x ∈ supportWhen o oa, supportWhen o (ob x) := by
-  unfold supportWhen
-  rw [simulateQ_bind, SetM.run_bind]
-
-/-- Membership form of [`OracleComp.supportWhen_bind`]. -/
-@[deprecated "VCVio retiring support API: use reachableWhen_bind" (since := "2026-09-14")]
-lemma mem_supportWhen_bind_iff (o : QueryImpl spec Set) (oa : OracleComp spec α)
-    (ob : α → OracleComp spec β) (y : β) :
-    y ∈ supportWhen o (oa >>= ob) ↔
-      ∃ x ∈ supportWhen o oa, y ∈ supportWhen o (ob x) := by
-  simp [supportWhen_bind]
-
-/-- Enlarging the set of possible oracle outputs only enlarges the reachable output set. -/
-@[deprecated "VCVio retiring support API: use reachableWhen_mono" (since := "2026-09-14"),
-  gcongr]
-lemma supportWhen_mono {o₁ o₂ : QueryImpl spec Set}
-    (h : ∀ q, o₁ q ⊆ o₂ q) (oa : OracleComp spec α) :
-    supportWhen o₁ oa ⊆ supportWhen o₂ oa := by
-  intro y hy
-  induction oa using OracleComp.inductionOn generalizing y with
-  | pure x =>
-      simpa [supportWhen_pure] using hy
-  | query_bind q oa ih =>
-      simp only [supportWhen_query_bind, Set.mem_iUnion, exists_prop] at hy ⊢
-      rcases hy with ⟨u, hu, hy⟩
-      exact ⟨u, h q hu, ih u hy⟩
-
-/-- The `SetM` interpretation agrees with operation-indexed reachability. -/
-@[deprecated "VCVio retiring support API: use reachableWhen" (since := "2026-09-15")]
-theorem supportWhen_eq_reachableWhen (o : QueryImpl spec Set) (oa : OracleComp spec α) :
-    supportWhen o oa = reachableWhen o oa := by
-  induction oa using OracleComp.inductionOn with
-  | pure x => simp
-  | query_bind q next ih =>
-      simp only [supportWhen_query_bind, reachableWhen_bind, reachableWhen_query, ih]
-
-end supportWhen
+end reachableWhen
 
 end OracleComp

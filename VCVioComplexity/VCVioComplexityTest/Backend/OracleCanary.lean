@@ -111,10 +111,10 @@ theorem oneCoinOracleProgram_toFreeM (input : Unit) :
 
 /-- The native fair-coin interpretation is selected explicitly for this canary. -/
 @[instance_reducible]
-noncomputable def oneCoinMeasureSpec : coinSpec.toPFunctor.IsMeasureSpec :=
-  IsMeasureSpec.uniformOfFiniteNonempty _
+noncomputable def oneCoinAnswerMeasure : coinSpec.toPFunctor.AnswerMeasure :=
+  AnswerMeasure.uniformOfFiniteNonempty _
 
-attribute [local instance] oneCoinMeasureSpec
+attribute [local instance] oneCoinAnswerMeasure
 
 /-- The one-query program directly denotes the uniform measure on Boolean answers. -/
 theorem oneCoinProgram_denote_eq_uniformOn (input : Unit) :

@@ -7,11 +7,11 @@ Authors: Devon Tuma
 module
 public import VCVio.ProgramLogic.Unary.WP.Probabilistic.Measure
 public import VCVio.EvalDist.Defs.Measure.Deterministic
-public import VCVio.OracleComp.EvalDist.MeasureSpec
+public import VCVio.OracleComp.EvalDist.AnswerMeasure
 public import Mathlib.Tactic.GRewrite
 
 /-!
-# Bounded native WP regressions
+# Bounded WP regressions
 
 Probability assertions apply to unsuccessful runs and weighted oracle responses. Ordinary
 imports supply the interpretation, public value laws, and congruence automation.
@@ -20,13 +20,12 @@ imports supply the interpretation, public value laws, and congruence automation.
 public section
 
 open MeasureTheory Std.Internal.Do
-open scoped ENNReal MeasureProgramLogic.Probabilistic
+open scoped ENNReal ExpectationWP.Probabilistic
 
 run_cmd do
   let env ← Lean.getEnv
-  for name in [`PMF, `SPMF] do
-    if env.contains name then
-      throwError "bounded native WP unexpectedly imports {name}"
+  if env.contains `PMF then
+    throwError "bounded WP unexpectedly imports PMF"
 
 namespace VCVioTest.ProgramLogic.BoundedMeasureWP
 
@@ -55,14 +54,14 @@ example (mx : m α) (f g : α → Prob) (hfg : ∀ a, f a ≤ g a) :
 
 abbrev WeightedSpec : OracleSpec (Fin 1) := Fin 1 →ₒ Bool
 
-noncomputable instance weightedMeasureSpec : OracleSpec.IsMeasureSpec WeightedSpec where
+noncomputable instance weightedAnswerMeasure : OracleSpec.AnswerMeasure WeightedSpec where
   toMeasure _ := Measure.dirac false
   isProbabilityMeasure _ := inferInstance
 
 example : (wp (WeightedSpec.query 0 : OracleComp WeightedSpec Bool)
     (fun answer ↦ Prob.indicator (answer = true)) Lean.Order.bot).val = 0 := by
-  rw [MeasureProgramLogic.Probabilistic.wp_val_eq_lintegral _ _ Measurable.of_discrete]
-  simp only [OracleComp.evalDist_liftM_query]
-  simp [OracleSpec.IsMeasureSpec.toMeasure, PFunctor.IsMeasureSpec.toMeasure]
+  rw [ExpectationWP.Probabilistic.wp_val_eq_lintegral _ _ Measurable.of_discrete]
+  simp only [OracleComp.evalDist_liftM_query (spec := WeightedSpec), MeasureTheory.trim_eq_self]
+  simp [OracleSpec.AnswerMeasure.toMeasure, PFunctor.AnswerMeasure.toMeasure]
 
 end VCVioTest.ProgramLogic.BoundedMeasureWP

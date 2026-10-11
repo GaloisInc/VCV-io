@@ -15,7 +15,7 @@ The ordered expectation algebra integrates the identity against a computation's
 successful-output measure. Its construction only needs lawful measure semantics;
 neither uniform sampling nor losslessness is required.
 
-Enable the quantitative interpretation with `open scoped MeasureProgramLogic.Quantitative`.
+Enable the quantitative interpretation with `open scoped ExpectationWP.Lower`.
 The integral characterization uses the chosen output space and explicit measurability of
 postconditions. Unobserved outputs can instead be mapped into the assertion carrier.
 Continuous effects require their own measurable program interface
@@ -29,13 +29,13 @@ open scoped ENNReal
 
 universe v
 
-namespace MeasureProgramLogic
+namespace ExpectationWP
 
 variable (m : Type → Type v) [Monad m] [EvalDistSemantics m] [LawfulEvalDistSemantics m]
 
 /-- The ordered algebra of nonnegative expectations under successful-output measures. -/
 @[expose, instance_reducible]
-noncomputable def toMAlgOrdered : MAlgOrdered m ENNReal where
+noncomputable def algebra : MAlgOrdered m ENNReal where
   μ mx := ∫⁻ x, x ∂𝒟[mx]
   μ_pure x := by simp
   μ_bind_mono {α} f g hfg mx := by
@@ -48,11 +48,11 @@ noncomputable def toMAlgOrdered : MAlgOrdered m ENNReal where
         (g := fun x ↦ x) measurable_id]
     exact lintegral_mono hfg
 
-namespace Quantitative
+namespace Lower
 
-/-- Select the native ordered expectation algebra. -/
+/-- Select the ordered expectation algebra of successful-output measures. -/
 noncomputable scoped instance (priority := 1100) instMAlgOrdered : MAlgOrdered m ENNReal :=
-  toMAlgOrdered m
+  algebra m
 
 /-- Core WP with nonnegative expectations and an empty exception postcondition.
 
@@ -151,5 +151,5 @@ theorem wp_le_const_mul_mass_add (mx : m α) {f g : α → ENNReal} {c : ENNReal
   exact (lintegral_mono_ae hfg).trans_eq <| by
     rw [lintegral_add_left measurable_const, lintegral_const]
 
-end Quantitative
-end MeasureProgramLogic
+end Lower
+end ExpectationWP

@@ -14,7 +14,7 @@ public import VCVio.EvalDist.MeasureSemantics
 Local semantics bundles expose their mass certificates to Mathlib's typeclasses and simplifier.
 Successful-output observations retain the distinction between subprobability and losslessness;
 effect-preserving observations of a total base monad remain probability measures.
-The import surface contains no PMF/SPMF backend.
+The import surface contains no `PMF` backend.
 -/
 
 public section
@@ -23,9 +23,8 @@ open MeasureTheory ProbabilityTheory
 
 run_cmd do
   let env ← Lean.getEnv
-  for name in [`PMF, `SPMF] do
-    if env.contains name then
-      throwError "bundled native semantics unexpectedly import {name}"
+  if env.contains `PMF then
+    throwError "bundled semantics unexpectedly import PMF"
 
 namespace VCVioTest.BundledSemantics
 
@@ -35,7 +34,7 @@ section observations
 
 variable {m : Type u → Type v} [Monad m] {α β : Type u} {ρ : Type w}
   [MeasurableSpace α] [MeasurableSpace β] [MeasurableSpace ρ]
-  (sem : MeasureSemanticsVia m) (mx : m α)
+  (sem : SemanticsVia m) (mx : m α)
 
 example : IsSubprobabilityMeasure (sem.evalDist mx) := inferInstance
 
@@ -71,37 +70,37 @@ variable {m : Type u → Type v} [Monad m] [EvalDistSemantics m]
   {α ε : Type u} [MeasurableSpace α] [MeasurableSpace ε]
 
 example (mx : m α) :
-    IsSubprobabilityMeasure ((MeasureSemanticsVia.ofEvalDistSemantics m).evalDist mx) :=
+    IsSubprobabilityMeasure ((SemanticsVia.ofEvalDistSemantics m).evalDist mx) :=
   inferInstance
 
 example (mx : m α) [IsProbabilityMeasure 𝒟[mx]] :
-    IsProbabilityMeasure ((MeasureSemanticsVia.ofEvalDistSemantics m).evalDist mx) :=
+    IsProbabilityMeasure ((SemanticsVia.ofEvalDistSemantics m).evalDist mx) :=
   inferInstance
 
 example (mx : m α) [IsProbabilityMeasure 𝒟[mx]] :
-    (MeasureSemanticsVia.ofEvalDistSemantics m).evalDist mx Set.univ = 1 := by simp
+    (SemanticsVia.ofEvalDistSemantics m).evalDist mx Set.univ = 1 := by simp
 
 example (mx : OptionT m α) :
-    IsSubprobabilityMeasure ((MeasureSemanticsVia.optionT m).evalDist mx) := inferInstance
+    IsSubprobabilityMeasure ((SemanticsVia.optionT m).evalDist mx) := inferInstance
 
 example (mx : OptionT m α) [IsProbabilityMeasure 𝒟[mx]] :
-    IsProbabilityMeasure ((MeasureSemanticsVia.optionT m).evalDist mx) := inferInstance
+    IsProbabilityMeasure ((SemanticsVia.optionT m).evalDist mx) := inferInstance
 
 example (mx : ExceptT ε m α) :
-    IsSubprobabilityMeasure ((MeasureSemanticsVia.exceptT ε m).evalDist mx) := inferInstance
+    IsSubprobabilityMeasure ((SemanticsVia.exceptT ε m).evalDist mx) := inferInstance
 
 example (mx : ExceptT ε m α) [IsProbabilityMeasure 𝒟[mx]] :
-    IsProbabilityMeasure ((MeasureSemanticsVia.exceptT ε m).evalDist mx) := inferInstance
+    IsProbabilityMeasure ((SemanticsVia.exceptT ε m).evalDist mx) := inferInstance
 
 variable [LawfulPureEvalDistSemantics m]
 
 example (x : α) :
-    IsProbabilityMeasure ((MeasureSemanticsVia.optionT m).evalDist (pure x)) := inferInstance
+    IsProbabilityMeasure ((SemanticsVia.optionT m).evalDist (pure x)) := inferInstance
 
 example (x : α) :
-    IsProbabilityMeasure ((MeasureSemanticsVia.exceptT ε m).evalDist (pure x)) := inferInstance
+    IsProbabilityMeasure ((SemanticsVia.exceptT ε m).evalDist (pure x)) := inferInstance
 
-example : (MeasureSemanticsVia.optionT m).evalDist (failure : OptionT m α) = 0 := by
+example : (SemanticsVia.optionT m).evalDist (failure : OptionT m α) = 0 := by
   simp
 
 end global

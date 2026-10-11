@@ -86,7 +86,7 @@ private theorem evalDist_uniformPair_map
 
 /-- The restricted Schnorr simulator has exactly the honest transcript measure on valid keys.
 The challenge map need not be injective for this simulation fact. -/
-theorem restrictedSigma_hvzk_measure [SampleableType C]
+theorem restrictedSigma_hvzk [SampleableType C]
     [MeasurableSpace F] [DiscreteMeasurableSpace F]
     [MeasurableSpace C] [DiscreteMeasurableSpace C] [MeasurableSpace G]
     (g : G) (encode : C → F) (pk : G) (sk : F) (hkey : sk • g = pk) :

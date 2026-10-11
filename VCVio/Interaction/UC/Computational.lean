@@ -9,7 +9,7 @@ public import PolyFun.Interaction.UC.Emulates
 public import VCVio.CryptoFoundations.Asymptotics.Negligible
 public import VCVio.CryptoFoundations.Asymptotics.Security
 public import VCVio.EvalDist.Defs.Semantics.Core
-public import VCVio.EvalDist.MeasureTVDist
+public import VCVio.EvalDist.MeasureTVDist.Basic
 
 /-!
 # Computational observation layer for UC security
@@ -31,7 +31,7 @@ A `Semantics T` bundles:
 
 1. an ambient surface monad `m : Type → Type` in which closed systems
    are observed;
-2. a `MeasureSemanticsVia m` factoring computations in `m` through an internal
+2. a `SemanticsVia m` factoring computations in `m` through an internal
    semantic monad into an externally visible measure;
 3. a result type observed at the closed-system boundary;
 4. a `run : T.Closed → m Result` that extracts the probabilistic game
@@ -103,7 +103,7 @@ variable {T : OpenTheory.{u}}
 systems in the open-composition theory `T`:
 
 * `m` is the surface monad in which the observation is written;
-* `sem` is a `MeasureSemanticsVia m` giving `m` its sub-probabilistic
+* `sem` is a `SemanticsVia m` giving `m` its sub-probabilistic
   meaning;
 * `Result` is the externally visible output type;
 * `run` extracts an `m Result` game from each closed system.
@@ -125,7 +125,7 @@ structure Semantics (T : OpenTheory.{u}) where
   internal semantic monad is kept in `Type → Type` so that every
   protocol (`ProbComp`, `OracleComp superSpec`, `OptionT ProbComp`,
   `StateT σ ProbComp`) fits uniformly. -/
-  sem : MeasureSemanticsVia.{0, 0, 0} m
+  sem : SemanticsVia.{0, 0, 0} m
   /-- The probabilistic game extracted from a closed system. -/
   run : T.Closed → m Result
 

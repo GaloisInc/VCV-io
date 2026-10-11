@@ -11,7 +11,7 @@ public import PolyFun.PFunctor.Bound
 public import VCVio.OracleComp.Support
 public import VCVio.OracleComp.QueryTracking.CountingOracle.Core
 public import VCVio.OracleComp.SimSemantics.Append.Core
-public import VCVio.OracleComp.SimSemantics.StateT.Basic.Native
+public import VCVio.OracleComp.SimSemantics.StateT.Basic
 
 /-!
 # Structural query bounds
@@ -494,6 +494,15 @@ lemma allQueriesSatisfy_query_bind_iff (t : ι) (mx : spec t → OracleComp spec
     AllQueriesSatisfy (liftM (spec.query t) >>= mx) P ↔
       P t ∧ ∀ u, AllQueriesSatisfy (mx u) P :=
   Iff.rfl
+
+/-- A predicate-only bound transfers along a pointwise implication of the predicates. -/
+theorem AllQueriesSatisfy.mono {oa : OracleComp spec α} {P Q : ι → Prop}
+    (h : AllQueriesSatisfy oa P) (hPQ : ∀ t, P t → Q t) : AllQueriesSatisfy oa Q := by
+  induction oa using OracleComp.inductionOn with
+  | pure _ => exact allQueriesSatisfy_pure _ _
+  | query_bind t mx ih =>
+      obtain ⟨ht, hmx⟩ := (allQueriesSatisfy_query_bind_iff _ _ _).mp h
+      exact (allQueriesSatisfy_query_bind_iff _ _ _).mpr ⟨hPQ t ht, fun u => ih u (hmx u)⟩
 
 /-- A predicate-only bound composes through monadic sequencing.  The unit budget discharges both
 side conditions of `isQueryBound_bind`. -/

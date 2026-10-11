@@ -13,7 +13,7 @@ public import ToMathlib.MeasureTheory.Measure.UniformTable
 
 Explicit uniform-measure hypotheses suffice to resample or extract table cells. The
 continuation may return any measurable result space and may lose mass. No sampling
-implementation or discrete probability representation is required.
+implementation is required.
 -/
 
 public section

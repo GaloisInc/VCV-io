@@ -331,7 +331,7 @@ structure ChallengeResult (proto : Scheme m K UK TK W) where
 /-- An adversary's advantage in the UAKE security experiment as expressed in
   Def. 8 of DF'17. This allows theorems about UAKE to be expressed exactly as
   they are in the paper. Note however, that the UAKE game in the paper is total
-  (`Pr[= true | ...] + Pr[= false | ...] = 1`), since aborts in functions
+  (`Pr{let x ← ...}[x = true] + Pr{let x ← ...}[x = false] = 1`), since aborts in functions
   comprising a UAKE scheme are not considered. For example, `Scheme.setup`
   could abort if the `m` monad allows for this, inflating the adversary's
   advantage with no substantive attack. For a more meaningful security notion

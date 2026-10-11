@@ -6,7 +6,7 @@ Authors: Quang Dao
 
 module
 public import VCVio.OracleComp.ProbComp.Basic
-public import VCVio.OracleComp.EvalDist.MeasureSpec
+public import VCVio.OracleComp.EvalDist.AnswerMeasure
 public import VCVio.EvalDist.Defs.Semantics.Core
 public import PolyFun.Control.Monad.Hom
 import VCVio.EvalDist.Monad.Measure
@@ -58,21 +58,21 @@ end ProbCompLift
 
 This packages the two capabilities that security experiments usually need together:
 
-1. `MeasureSemanticsVia m` to observe successful experiment outputs.
+1. `SemanticsVia m` to observe successful experiment outputs.
 2. `ProbCompLift m` to sample fresh public randomness inside `m`.
 
 The bundle is kept separate from the core scheme definitions so that executable scheme data does
 not become noncomputable merely by carrying denotational semantics. -/
 structure ProbCompRuntime (m : Type → Type v) [Monad m] where
   /-- Bundled successful-output measure semantics for the ambient monad. -/
-  toMeasureSemanticsVia : MeasureSemanticsVia.{0, v, w} m
+  toSemanticsVia : SemanticsVia.{0, v, w} m
   /-- Bundled injection of plain probabilistic sampling into the ambient monad. -/
   toProbCompLift : ProbCompLift m
   /-- Observing a measurable map agrees with pushing the output measure forward. -/
   evalDist_map_eq : ∀ {α β : Type} [MeasurableSpace α] [MeasurableSpace β]
     (f : α → β), Measurable f → ∀ mx : m α,
-      toMeasureSemanticsVia.evalDist (f <$> mx) =
-        (toMeasureSemanticsVia.evalDist mx).map f
+      toSemanticsVia.evalDist (f <$> mx) =
+        (toSemanticsVia.evalDist mx).map f
 
 namespace ProbCompRuntime
 
@@ -81,17 +81,17 @@ variable {m : Type → Type v} [Monad m] {α : Type}
 /-- Observe an ambient computation by its successful-output measure. -/
 noncomputable def evalDist (runtime : ProbCompRuntime m) [MeasurableSpace α]
     (mx : m α) : Measure α :=
-  runtime.toMeasureSemanticsVia.evalDist mx
+  runtime.toSemanticsVia.evalDist mx
 
 /-- Failure probability of an ambient computation under the runtime's bundled semantics. -/
-noncomputable def probFailure (runtime : ProbCompRuntime m) [MeasurableSpace α]
+noncomputable def prFail (runtime : ProbCompRuntime m) [MeasurableSpace α]
     (mx : m α) : ENNReal :=
-  runtime.toMeasureSemanticsVia.probFailure mx
+  runtime.toSemanticsVia.prFail mx
 
 @[simp]
 lemma evalDist_apply_univ_le_one (runtime : ProbCompRuntime m) [MeasurableSpace α]
     (mx : m α) : runtime.evalDist mx Set.univ ≤ 1 :=
-  runtime.toMeasureSemanticsVia.evalDist_apply_univ_le_one mx
+  runtime.toSemanticsVia.evalDist_apply_univ_le_one mx
 
 /-- Every runtime observation is a subprobability measure. Registering the bundled mass bound as
 an instance lets the ordinary measure API discharge finite-mass and `≤ 1` side conditions. -/
@@ -122,7 +122,7 @@ def liftProbComp (runtime : ProbCompRuntime m) : ProbComp →ᵐ m :=
 
 /-- Canonical runtime for `ProbComp` itself. -/
 noncomputable def probComp : ProbCompRuntime ProbComp where
-  toMeasureSemanticsVia := MeasureSemanticsVia.ofEvalDistSemantics ProbComp
+  toSemanticsVia := SemanticsVia.ofEvalDistSemantics ProbComp
   toProbCompLift := ProbCompLift.id
   evalDist_map_eq _f hf mx := _root_.evalDist_map mx hf
 

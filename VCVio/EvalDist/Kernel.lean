@@ -121,37 +121,37 @@ theorem evalDistKernel_bind [Monad m] [EvalDistSemantics m] [LawfulEvalDistSeman
   ext r : 1
   exact evalDist_bind (f r) g hg
 
-namespace MeasureSemanticsVia
+namespace SemanticsVia
 
 variable [Monad m]
 
 /-- A local bundled semantics turns a measurable family of surface computations into a kernel. -/
-noncomputable def evalDistKernel (sem : MeasureSemanticsVia m)
+noncomputable def evalDistKernel (sem : SemanticsVia m)
     [MeasurableSpace ρ] [MeasurableSpace α] (f : ρ → m α)
     (hf : Measurable fun r => sem.evalDist (f r)) : Kernel ρ α :=
   ⟨fun r => sem.evalDist (f r), hf⟩
 
 @[simp]
-theorem evalDistKernel_apply (sem : MeasureSemanticsVia m)
+theorem evalDistKernel_apply (sem : SemanticsVia m)
     [MeasurableSpace ρ] [MeasurableSpace α] (f : ρ → m α)
     (hf : Measurable fun r => sem.evalDist (f r)) (r : ρ) :
     sem.evalDistKernel f hf r = sem.evalDist (f r) := rfl
 
-instance evalDistKernel.instIsSubprobabilityKernel (sem : MeasureSemanticsVia m)
+instance evalDistKernel.instIsSubprobabilityKernel (sem : SemanticsVia m)
     [MeasurableSpace ρ] [MeasurableSpace α] (f : ρ → m α)
     (hf : Measurable fun r => sem.evalDist (f r)) :
     IsSubprobabilityKernel (sem.evalDistKernel f hf) :=
   ⟨fun r => sem.evalDist_apply_univ_le_one (f r)⟩
 
 /-- A bundled family with lossless output measures denotes a Markov kernel. -/
-instance evalDistKernel.instIsMarkovKernel (sem : MeasureSemanticsVia m)
+instance evalDistKernel.instIsMarkovKernel (sem : SemanticsVia m)
     [MeasurableSpace ρ] [MeasurableSpace α] (f : ρ → m α)
     (hf : Measurable fun r ↦ sem.evalDist (f r))
     [∀ r, IsProbabilityMeasure (sem.evalDist (f r))] :
     IsMarkovKernel (sem.evalDistKernel f hf) where
   isProbabilityMeasure r := inferInstanceAs (IsProbabilityMeasure (sem.evalDist (f r)))
 
-end MeasureSemanticsVia
+end SemanticsVia
 
 end
 

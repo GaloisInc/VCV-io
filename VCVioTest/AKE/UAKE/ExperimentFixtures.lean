@@ -291,13 +291,13 @@ theorem alwaysReject_not_admissible :
 
 /-- A bundled observer may report zero mass while respecting only its map law. -/
 @[expose] noncomputable def zeroRuntime : ProbCompRuntime ProbComp where
-  toMeasureSemanticsVia :=
+  toSemanticsVia :=
     { Sem := ProbComp
       interpret := MonadHom.id ProbComp
       observe := fun _ => 0
       observe_apply_univ_le_one := fun _ => by simp }
   toProbCompLift := ProbCompLift.id
-  evalDist_map_eq _ _ _ := by simp [MeasureSemanticsVia.evalDist]
+  evalDist_map_eq _ _ _ := by simp [SemanticsVia.evalDist]
 
 /-- The coherence certificate rejects the zero observer on a pure return. -/
 theorem zeroRuntime_not_coherent : ¬ RuntimeCoherent zeroRuntime := by

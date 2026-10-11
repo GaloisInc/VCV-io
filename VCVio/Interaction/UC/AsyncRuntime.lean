@@ -18,7 +18,7 @@ schedulers; the alphabet of env events is supplied by an
 `EnvAction m Event State` (see `EnvAction.lean`).
 
 The shape of every definition mirrors the synchronous `processSemantics`
-in `Runtime.lean`: the bundled `MeasureSemanticsVia m` is threaded uniformly,
+in `Runtime.lean`: the bundled `SemanticsVia m` is threaded uniformly,
 so the same constructor serves coin-flip-only protocols, shared-oracle
 protocols, and observation-style semantics that introduce failure mass.
 The synchronous runtime is the special case in which the env scheduler
@@ -307,7 +307,7 @@ Construct an async `Semantics` for the open-process theory.
 Threads an env-action channel and an env scheduler. The per-step
 process sampler is obtained directly from the closed process's
 `stepSampler` (keyed by the underlying process state, ignoring any
-async env state). The bundled `MeasureSemanticsVia m` plays the same role as
+async env state). The bundled `SemanticsVia m` plays the same role as
 in `processSemantics` and supports the same instantiations:
 coin-flip-only protocols via `processSemanticsAsyncProbComp`,
 shared-oracle protocols via an `OracleComp`-monad measure semantics built
@@ -323,7 +323,7 @@ noncomputable def processSemanticsAsync
     {m : Type → Type} [Monad m]
     {Result : Type} [MeasurableSpace Result]
     (schedulerSampler : m (ULift Bool))
-    (sem : MeasureSemanticsVia.{0, 0, 0} m)
+    (sem : SemanticsVia.{0, 0, 0} m)
     {Event : Type} {State : Type}
     (envAction : EnvAction m Event State)
     (initEnvState : State)
@@ -367,7 +367,7 @@ noncomputable def processSemanticsAsyncProbComp
       p.Proc → State → RuntimeTrace Event → ProbComp Result) :
     Semantics (openTheory.{u, 0, 0, 0} Party ProbComp schedulerSampler) :=
   processSemanticsAsync Party schedulerSampler
-    (MeasureSemanticsVia.ofEvalDistSemantics ProbComp)
+    (SemanticsVia.ofEvalDistSemantics ProbComp)
     envAction initEnvState
     init envScheduler fuel observe
 
@@ -391,7 +391,7 @@ theorem processSemantics_eq_processSemanticsAsync_trivial
     {m : Type → Type} [Monad m] [LawfulMonad m]
     {Result : Type} [MeasurableSpace Result]
     (schedulerSampler : m (ULift Bool))
-    (sem : MeasureSemanticsVia.{0, 0, 0} m)
+    (sem : SemanticsVia.{0, 0, 0} m)
     (init : ∀ p : AsyncClosed Party m schedulerSampler, p.Proc)
     (fuel : ℕ)
     (observe : ∀ p : AsyncClosed Party m schedulerSampler, p.Proc → m Result) :

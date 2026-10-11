@@ -1,8 +1,9 @@
 # Computational-complexity feasibility record
 
-Status: reviewer checkpoint, updated 2026-08-28. This record evaluates whether the current
-interaction-first design is mathematically sound and whether it is ready for ordinary
-cryptographic use. The answer is deliberately split:
+Status: historical record of the reviewer audit of 2026-08-28, whose candidate source is merged;
+the [computational-complexity design](computational-complexity.md) describes the present.
+This record evaluates whether the interaction-first design is mathematically sound and whether it
+is ready for ordinary cryptographic use. The answer is deliberately split:
 
 - the committed foundation is an honest backend-relative definition of strict oracle PPT;
 - the current candidate source interprets syntactic paths directly as Mathlib measures, adds
@@ -134,9 +135,9 @@ measure-native vertical slice over the existing trusted layers:
 - `denote_coinVector_eq_uniform` proves the whole Boolean-vector measure is uniform, and
   `denote_coinBitVec_eq_uniform` transports that law through the explicit `bitVecOfFnLE`
   bijection;
-- `coinOneTimePad_measureComplete` proves the round-trip law is Dirac at the input; and
+- `coinOneTimePad_completeWith` proves the round-trip law is Dirac at the input; and
 - `denote_coinOneTimePad_cipherGivenMsg_eq_uniform` proves the entire ciphertext law is uniform
-  for each fixed message, yielding `coinOneTimePad_measurePerfectSecrecyAt`.
+  for each fixed message, yielding `coinOneTimePad_ciphertextRowsEqualWith`.
 
 This is meaningful feasibility evidence: the random tape is exposed as `n` typed coin
 interactions, and the whole-measure OTP proof follows without replacing the program by a claimed
@@ -153,17 +154,17 @@ The OTP example uses the product and pushforward equalities exactly this way. Re
 construct the random tape law, and the XOR map for a fixed message is a measurable bijection that
 preserves the entire uniform measure. This proof reasons about the complete ciphertext law,
 rather than recovering it from a collection of scalar probability calculations. PMF/evaluation
-lemmas remain a useful compatibility surface for existing discrete proofs, not the semantic
-foundation of the new path.
+lemmas were then a compatibility surface for existing discrete proofs (since removed), not the
+semantic foundation of the new path.
 
 The candidate symmetric-encryption layer packages denotations through a `MeasureSemantics`:
 
-- `completeKernel` is the message-indexed round-trip kernel, and `measureComplete` says every row
+- `completeKernel` is the message-indexed round-trip kernel, and `completeWith` says every row
   is the Dirac law at the input message;
 - `perfectSecrecyCipherKernel` is the message-to-ciphertext channel, and
-  `measurePerfectSecrecyAt` says all of its rows are equal; and
+  `ciphertextRowsEqualWith` says all of its rows are equal; and
 - the corresponding `..._iff_...` lemmas identify these propositions with kernel-row
-  equalities, while `measurePerfectSecrecyAt_of_constant` supports a common-law proof.
+  equalities, while `ciphertextRowsEqualWith_of_constant` supports a common-law proof.
 
 The OTP example instantiates the corresponding measure propositions: correctness is a Dirac
 round-trip law and perfect secrecy is equality of ciphertext laws, proved through one common
@@ -183,7 +184,7 @@ uniform proof boundary. They do **not** inhabit it. In particular, the slice doe
 - a strict-PPT theorem for key generation, encryption, decryption, or the complete scheme; or
 - any backend, complexitylib or otherwise, implementing the variable-width OTP family.
 
-`fairCoinMeasureSpec` is an explicit semantic choice for oracle answers. Assigning the uniform
+`fairCoinAnswerMeasure` is an explicit semantic choice for oracle answers. Assigning the uniform
 measure to a coin response does not provide an efficient sampler implementation. Likewise, an
 exact query theorem is not an execution-time theorem.
 
@@ -280,7 +281,6 @@ lake env lean VCVioTest/UniformOn.lean
 lake env lean VCVio/EvalDist/PFunctorPath.lean
 lake env lean VCVio/CryptoFoundations/SymmEncAlg/Measure.lean
 lake env lean Examples/OneTimePad/ComputationalComplexity.lean
-lake env lean VCVioTest/CryptoFoundations/MeasureSemantics.lean
 lake env lean VCVioTest/CryptoFoundations/OracleClosure.lean
 lake env lean VCVioTest/OracleComp/SecurityFamily.lean
 lake exe mk_all --lib VCVio --module --check

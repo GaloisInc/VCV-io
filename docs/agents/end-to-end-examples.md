@@ -27,7 +27,7 @@ on a single concrete scheme. Reading order:
    extraction via the replay forking lemma and special soundness, for the
    witness finder `nmaReduction`), composed in `euf_cma_bound` for
    `cmaReduction`. The reductions are named in every statement:
-   `∃ reduction, bound ≤ Pr[= true | hardRelationExperiment hr reduction]` holds
+   `∃ reduction, bound ≤ Pr{let x ← hardRelationExperiment hr reduction}[x = true]` holds
    trivially, because a classical choice of witness per statement succeeds with
    probability `1`.
 4. **Forking lemma:** the replay-based forking lemma lives in
@@ -120,7 +120,7 @@ Reading order:
    [`Examples/CommitmentScheme/Common.lean`](../../Examples/CommitmentScheme/Common.lean)
    defines the random oracle `CMOracle : (M × S) → C`, the scheme algorithms
    `CMCommit` and `CMCheck`, and the basic single-fresh-query unpredictability
-   bound `probEvent_from_fresh_query_le_inv` (`1/|C|`) that all three security
+   bound `prEvent_from_fresh_query_le_inv` (`1/|C|`) that all three security
    proofs reduce to.
 2. **Binding:**
    [`Examples/CommitmentScheme/Binding.lean`](../../Examples/CommitmentScheme/Binding.lean)
@@ -141,7 +141,7 @@ Reading order:
    delivers the bound
 
 ```
-tvDist(hidingMixedReal A, hidingMixedSim A)  ≤  t / |S|,
+measureETVDist (hidingMixedReal A) (hidingMixedSim A)  ≤  t / |S|,
 ```
 
 where the salt is sampled inside the experiment and `t` is the adversary's
@@ -150,8 +150,8 @@ per-salt version is false.
 
 The framework machinery exercised: `cachingOracle`, `loggingOracle`,
 `IsTotalQueryBound`, the birthday bound
-`probEvent_cacheCollision_le_birthday_total_tight`, and the identical-until-bad
-TVD bound `tvDist_simulateQ_le_probEvent_bad_dist`.
+`prEvent_cacheCollision_le_birthday_total_tight`, and the identical-until-bad
+bound `measureETVDist_simulateQ_run'_le_prEvent_bad_of_evalDistEq`.
 
 ## PRF Tag/Reader Network Unlinkability
 
@@ -177,9 +177,9 @@ The free-program uniform-sampling model supplies probability measures for the re
 there is no additional losslessness assumption.
 
 The PRF-real faithfulness lemmas in `PRFReductions/Reductions.lean` expose equality of the
-whole programs. `multipleBad_bad_le_sessionCollisionBound` takes a native event bound on
-the nonce sampler and bounds the measure of the final Boolean collision observation.
-The underlying legacy collision induction remains at its existing compatibility boundary.
+whole programs. `multipleBad_bad_le_sessionCollisionBound` takes a point-mass bound
+`Pr{let n ← $ᵗ Nonce}[n = nonce]` on the nonce sampler and bounds the measure of the final Boolean
+collision observation.
 
 ## Fischlin extraction and log inspections
 

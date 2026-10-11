@@ -68,13 +68,13 @@ theorem mono
 theorem refl_le {ε : ℝ≥0∞} (h : QueryImpl.Stateful unifSpec E σ) (s : σ) :
     (h, s) ≈ᵈ[ε] (h, s) := mono zero_le (IndistAt.refl h s)
 
-/-! ## Bridge from `DistEquiv` -/
+/-! ## Bridge from measure equivalence -/
 
 theorem of_distEquiv
     {h₀ : QueryImpl.Stateful unifSpec E σ₀} {s₀ : σ₀}
     {h₁ : QueryImpl.Stateful unifSpec E σ₁} {s₁ : σ₁}
     (h : (h₀, s₀) ≡ᵈ (h₁, s₁)) : (h₀, s₀) ≈ᵈ[0] (h₁, s₁) :=
-  fun A => (DistEquiv.advantage_zero h A).le
+  fun A => (DistEquiv.advantage_eq_zero h A).le
 
 theorem distEquiv_left
     {h₀ : QueryImpl.Stateful unifSpec E σ₀} {s₀ : σ₀}

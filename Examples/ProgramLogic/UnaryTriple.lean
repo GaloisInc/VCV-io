@@ -20,13 +20,12 @@ This file validates unary `Triple` stepping and structural `vcgen` decomposition
 open ENNReal OracleSpec OracleComp
 open Lean.Order
 open OracleComp.ProgramLogic
-open scoped OracleComp.ProgramLogic Std.Internal.Do OracleComp.Quantitative
+open scoped OracleComp.ProgramLogic Std.Internal.Do OracleComp.Lower
 
 universe u
 
 variable {ι : Type u} {spec : OracleSpec ι}
-variable [∀ t, MeasurableSpace (spec.Range t)]
-  [∀ t, DiscreteMeasurableSpace (spec.Range t)] [OracleSpec.IsMeasureSpec spec]
+variable [OracleSpec.AnswerMeasure spec]
 variable {α β γ : Type}
 
 /-! ## `vcstep` on `Triple` goals -/
@@ -57,7 +56,7 @@ example (oa : OracleComp spec α) (f : α → OracleComp spec Bool)
   · simpa [propInd_eq_ite] using triple_support (oa := oa)
   · intro x
     by_cases hx : x ∈ support oa
-    · simpa [propInd, hx] using triple_probOutput_eq_one (oa := f x) (x := true) (h := h x hx)
+    · simpa [propInd, hx] using triple_prEvent_eq_one (oa := f x) (p := (· = true)) (h := h x hx)
     · simpa [propInd, hx] using
         triple_zero (oa := f x) (post := fun y => if y = true then 1 else 0)
 

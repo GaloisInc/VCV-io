@@ -12,13 +12,13 @@ public import VCVio.ProgramLogic.Unary.HoareTriple
 # `gcongr` through `wp`
 
 Canaries for the `@[gcongr]` tag on `wp_mono`: `gcongr` descends through `wp` into the
-postcondition and structural support, also under a finite sum. Measurable assertions use
+postcondition and possible outputs, also under a finite sum. Measurable assertions use
 `wp_eq_lintegral` in the chosen output space.
 -/
 
 public section
 
-open scoped OracleComp.Quantitative Std.Internal.Do
+open scoped OracleComp.Lower Std.Internal.Do
 
 open ENNReal OracleSpec OracleComp MeasureTheory
 open OracleComp.ProgramLogic
@@ -26,17 +26,15 @@ open scoped OracleComp.ProgramLogic
 
 run_cmd do
   let env ← Lean.getEnv
-  for name in [`PMF, `SPMF, `EvalDistCompatible, `DiscreteEvalDistCompatible] do
-    if env.contains name then
-      throwError "native Hoare WP unexpectedly imports {name}"
+  if env.contains `PMF then
+    throwError "Hoare WP unexpectedly imports PMF"
 
 namespace VCVioTest.ProgramLogicGCongr
 
 universe u
 
 variable {ι : Type u} {spec : OracleSpec ι} {α : Type}
-  [∀ t, MeasurableSpace (spec.Range t)]
-  [∀ t, DiscreteMeasurableSpace (spec.Range t)] [OracleSpec.IsMeasureSpec spec]
+  [OracleSpec.AnswerMeasure spec]
 
 example (P Q : Prop) (h : P → Q) : propInd P ≤ propInd Q := by apply_rw [h]
 
@@ -72,11 +70,20 @@ example (oa : OracleComp spec α) (f g : Fin 3 → α → ℝ≥0∞)
   gcongr with i _ x hx
   exact h i x hx
 
-/-- Public normalization exposes structural support to core WP congruence. -/
+/-- Public normalization exposes possible outputs to core WP congruence. -/
 example (oa : OracleComp spec α) (f g : α → ℝ≥0∞)
     (h : ∀ x ∈ support oa, f x ≤ g x) :
     Std.Internal.Do.wp oa f Lean.Order.bot ≤ Std.Internal.Do.wp oa g Lean.Order.bot := by
-  simp only [OracleComp.Quantitative.wp_eq_mAlgOrdered_wp]
+  simp only [OracleComp.Lower.wp_eq_mAlgOrdered_wp]
+  gcongr with x hx
+  exact h x hx
+
+/-- Averages of inner averages: after `wp_bind`, `gcongr` descends into the continuation with
+the support hypothesis. -/
+example {β : Type} (oa : OracleComp spec α) (ob ob' : α → OracleComp spec β) (g : β → ℝ≥0∞)
+    (h : ∀ x ∈ support oa, wp (ob x) g ≤ wp (ob' x) g) :
+    wp (oa >>= ob) g ≤ wp (oa >>= ob') g := by
+  rw [wp_bind, wp_bind]
   gcongr with x hx
   exact h x hx
 

@@ -11,7 +11,7 @@ public import VCVio.EvalDist.Defs.Measure.Core
 # Successful-output measure of failure
 
 `LawfulFailureEvalDistSemantics` certifies that failure has zero successful-output measure.
-This law is independent of attachment, pure, bind, and any discrete probability representation.
+This law is independent of attachment, pure and bind.
 -/
 
 public section

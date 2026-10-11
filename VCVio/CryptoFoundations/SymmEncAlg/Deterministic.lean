@@ -38,7 +38,7 @@ message are modelled by instantiating `C` per length.
 
 ## Main results
 
-* `DetSymmEncAlg.measureComplete_toSymmEncAlg`: pointwise correctness gives measure-level
+* `DetSymmEncAlg.completeWith_toSymmEncAlg`: pointwise correctness gives measure-level
   completeness of the induced monadic scheme.
 * `DetSymmEncAlg.IND_CPA_OneTime_Advantage_eq_two_mul_indDollarAdvantage`: the one-time
   IND-CPA advantage of the induced scheme is exactly twice the IND$-CPA advantage of the
@@ -98,9 +98,9 @@ def PerfectlyCorrect (scheme : DetSymmEncAlg M K C) : Prop :=
 
 /-- Pointwise correctness of a deterministic scheme gives measure-level completeness of the induced
 monadic scheme: every round trip has the Dirac law at the input message. -/
-theorem measureComplete_toSymmEncAlg [MeasurableSpace M] (scheme : DetSymmEncAlg M K C)
+theorem completeWith_toSymmEncAlg [MeasurableSpace M] (scheme : DetSymmEncAlg M K C)
     (hcorrect : scheme.PerfectlyCorrect) :
-    scheme.toSymmEncAlg.measureComplete ProbabilitySemantics.freeM := by
+    scheme.toSymmEncAlg.completeWith ProbabilitySemantics.freeM := by
   intro msg
   have hprogram : scheme.toSymmEncAlg.completenessExperiment msg =
       (fun _ : K ↦ some msg) <$> scheme.keygen := by

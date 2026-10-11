@@ -582,7 +582,7 @@ errors and unchanged-goal failures.
 
 This is the single replacement for the previous open-coded `simp only [...]`
 blocks that peeled transformer `wp` layers (`apply_wp`, `*.run`, lifts,
-`Std.Internal.Do.EPost.Cons.push*`, `MAlgOrdered.wp_*`, the `Quantitative.wp_eq_mAlgOrdered_wp`
+`Std.Internal.Do.EPost.Cons.push*`, `MAlgOrdered.wp_*`, the `Lower.wp_eq_mAlgOrdered_wp`
 bridges, and the assorted monad/algebra rewrites). Tag a new normalization
 lemma with `@[vcspec_simp]` (or rely on the `@[vcspec]` fallback) instead of
 appending it to a tactic-local simp list. -/

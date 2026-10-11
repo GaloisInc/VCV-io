@@ -10,7 +10,7 @@ public import ToMathlib.MeasureTheory.Measure.Coupling
 public import VCVio.EvalDist.Defs.Measure.Core
 
 /-!
-# Measure-native relational program logic
+# Measure-theoretic relational program logic
 
 This module establishes the foundational relational semantics directly over couplings of Mathlib
 measures. The postcondition holds almost everywhere under the joint measure, which is the
@@ -34,7 +34,7 @@ open scoped ENNReal
 
 universe u v w₁ w₂
 
-namespace MeasureProgramLogic
+namespace ExpectationWP
 
 variable {α : Type u} {β : Type v}
 variable [MeasurableSpace α] [MeasurableSpace β]
@@ -43,7 +43,7 @@ variable [MeasurableSpace α] [MeasurableSpace β]
 def CouplingPost (μ : Measure α) (ν : Measure β) (R : α → β → Prop) : Prop :=
   ∃ c : Measure.Coupling μ ν, ∀ᵐ z ∂c.joint, R z.1 z.2
 
-/-- Measure-native relational weakest precondition for two denoted computations. -/
+/-- Measure-theoretic relational weakest precondition for two denoted computations. -/
 def RelWP {m₁ : Type u → Type w₁} {m₂ : Type v → Type w₂}
     [EvalDistSemantics m₁] [EvalDistSemantics m₂]
     (mx : m₁ α) (my : m₂ β) (R : α → β → Prop) : Prop :=
@@ -62,7 +62,7 @@ theorem CouplingPost.mono {μ : Measure α} {ν : Measure β} {R S : α → β �
   obtain ⟨c, hc⟩ := h
   exact ⟨c, hc.mono fun z hz => hRS z.1 z.2 hz⟩
 
-/-- Implication of relations preserves a measure-native relational judgment. -/
+/-- Implication of relations preserves a measure-theoretic relational judgment. -/
 theorem relWP_mono {m₁ : Type u → Type w₁} {m₂ : Type v → Type w₂}
     [EvalDistSemantics m₁] [EvalDistSemantics m₂]
     {mx : m₁ α} {my : m₂ β} {R S : α → β → Prop}
@@ -220,4 +220,4 @@ theorem relWP_pure_pure_iff [MeasurableSingletonClass α] [MeasurableSingletonCl
   · intro hR
     exact ⟨Measure.Coupling.dirac a b, by simp [hR]⟩
 
-end MeasureProgramLogic
+end ExpectationWP

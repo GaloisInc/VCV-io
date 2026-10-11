@@ -30,18 +30,18 @@ example : True := by
     let _ := (inferInstance : WPMonad ProbComp ℝ≥0∞ EPost.Nil)
   trivial
 
-section Qualitative
-open scoped OracleComp.Qualitative
+section Necessary
+open scoped OracleComp.Necessary
 
 example {ι : Type} {spec : OracleSpec ι} {α : Type} (oa : OracleComp spec α)
     (post : α → Prop) :
     wp oa post EPost.Nil.mk ↔ ∀ a ∈ support oa, post a :=
-  OracleComp.Qualitative.wp_iff_forall_support oa post
+  OracleComp.Necessary.wp_iff_forall_support oa post
 
-end Qualitative
+end Necessary
 
-section Quantitative
-open scoped OracleComp.Quantitative
+section Lower
+open scoped OracleComp.Lower
 
 /--
 warning: The `vcgen` tactic is an experimental drop-in replacement for `mvcgen` that will eventually replace it. Avoid using it in production projects.
@@ -67,7 +67,7 @@ example (post : PUnit.{1} → List Nat → ℝ≥0∞) :
   intro log
   simp [WriterT.run_bind, WriterT.run_tell, MAlgOrdered.wp_pure]
 
-end Quantitative
+end Lower
 
 section Probabilistic
 open scoped OracleComp.Probabilistic
