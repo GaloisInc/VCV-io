@@ -29,6 +29,11 @@ The codemod is textual: it never needs a build and is idempotent, so it can be r
 further repin. It does not convert proofs; a proof that computed with `probOutput` sums, `SPMF`
 equalities or `tvDist` follows the *Standard proof conversion* table of the roadmap.
 
+Maintainers converting an open pull request: `scripts/migration-dry-run.sh --worktree DIR --out OUT
+PR...` merges each pull request onto the current commit in a built worktree, runs the codemod over
+its Lean files and builds their modules; `python3 scripts/classify-migration-errors.py OUT` sorts the
+remaining build errors by kind, file scope and whether the codemod knows the name.
+
 ## Notation and definitions
 
 | Removed | Replacement |
