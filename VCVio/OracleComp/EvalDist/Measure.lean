@@ -125,6 +125,19 @@ theorem prEvent_bind_bind_swap
       prEvent (my >>= fun b ↦ mx >>= fun a ↦ f a b) := by
   rw [prEvent_def, prEvent_def, evalDist_bind_bind_swap]
 
+/-- Independent oracle computations commute inside an event of their two outputs, the normal
+form of `Pr{let a ← mx; let b ← my}[p a b]`, a bind followed by a map of the selector. Only the
+query answers must be countable; the two output types need neither countability nor a
+measurable structure. -/
+theorem prEvent_bind_map_swap
+    {ι : Type u} {α β : Type} {spec : OracleSpec.{u, 0} ι}
+    [∀ t, Countable (spec.Range t)]
+    [OracleSpec.AnswerMeasure spec]
+    (mx : OracleComp spec α) (my : OracleComp spec β) (p : α → β → Prop) :
+    Pr{let a ← mx; let b ← my}[p a b] = Pr{let b ← my; let a ← mx}[p a b] := by
+  simp only [← bind_pure_comp]
+  exact prEvent_bind_bind_swap mx my fun a b ↦ pure (p a b)
+
 /-- Independent oracle computations commute before an event of their continuation under a uniform
 oracle specification. -/
 theorem prEvent_bind_bind_swap_of_uniform
@@ -389,6 +402,13 @@ theorem prEvent_true_eq_one (mx : OracleComp spec α) : Pr{let _ ← mx}[True] =
   let : MeasurableSpace α := ⊤
   rw [prEvent_eq_evalDist_of_discrete]
   simp
+
+/-- The complement of an event has the remaining probability: oracle computations never fail. -/
+theorem prEvent_not_eq_one_sub (mx : OracleComp spec α) (p : α → Prop) :
+    Pr{let x ← mx}[¬ p x] = 1 - Pr{let x ← mx}[p x] := by
+  have h := prEvent_add_prEvent_not_eq_prEvent_true mx p
+  rw [prEvent_true_eq_one] at h
+  exact ENNReal.eq_sub_of_add_eq (prEvent_ne_top _) (by rw [add_comm]; exact h)
 
 /-- Oracle computations with a measure interpretation never fail. -/
 @[simp, grind =]
