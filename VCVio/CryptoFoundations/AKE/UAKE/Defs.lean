@@ -7,6 +7,7 @@ Authors: Ben Hamlin
 module
 public import VCVio.CryptoFoundations.AKE.UAKE.Party
 public import VCVio.CryptoFoundations.AKE.UAKE.Transcript
+public import VCVio.CryptoFoundations.SecExp.Measure
 public import VCVio.OracleComp.ProbCompLift
 public import VCVio.CryptoFoundations.AKE.UAKE.Runtime
 

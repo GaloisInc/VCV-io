@@ -120,7 +120,7 @@ theorem toy3_perfectlyCorrect :
 /-! ## Well-formedness -/
 
 theorem toyU2_outputsOnlyAtCompletion : (toyU2 ProbComp).OutputsOnlyAtCompletion := by
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨inferInstance, ?_, ?_, ?_⟩
   · rintro _ r hr out hout
     obtain rfl := eq_of_mem_support_pure hr
     obtain rfl := eq_of_mem_support_pure hout
@@ -140,7 +140,7 @@ theorem toyU2_outputsOnlyAtCompletion : (toyU2 ProbComp).OutputsOnlyAtCompletion
     split_ifs at hstep <;> exact absurd (eq_of_mem_support_pure hstep) (by simp)
 
 theorem toyT2_outputsOnlyAtCompletion : (toyT2 ProbComp).OutputsOnlyAtCompletion := by
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨inferInstance, ?_, ?_, ?_⟩
   · rintro _ r hr out hout
     obtain rfl := eq_of_mem_support_pure hr
     obtain rfl := eq_of_mem_support_pure hout
@@ -172,7 +172,7 @@ theorem toy2_wellFormed : (toy2 ProbComp).WellFormed := by
   rfl
 
 theorem toyU3_outputsOnlyAtCompletion : (toyU3 ProbComp).OutputsOnlyAtCompletion := by
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨inferInstance, ?_, ?_, ?_⟩
   · rintro _ r hr out hout
     obtain rfl := eq_of_mem_support_pure hr
     obtain rfl := eq_of_mem_support_pure hout
@@ -200,7 +200,7 @@ theorem toyU3_outputsOnlyAtCompletion : (toyU3 ProbComp).OutputsOnlyAtCompletion
            simp)
 
 theorem toyT3_outputsOnlyAtCompletion : (toyT3 ProbComp).OutputsOnlyAtCompletion := by
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨inferInstance, ?_, ?_, ?_⟩
   · rintro _ r hr out hout
     obtain rfl := eq_of_mem_support_pure hr
     obtain rfl := eq_of_mem_support_pure hout
@@ -322,11 +322,31 @@ theorem zeroRuntime_not_coherent : ¬ RuntimeCoherent zeroRuntime := by
 
 theorem not_outputsOnlyAtCompletion_outputAtInitParty :
     ¬ outputAtInitParty.OutputsOnlyAtCompletion := fun h => by
-  simpa using h.1 () (.speakFirst false 1) ((mem_support_pure_iff _ _).2 rfl)
+  simpa using h.2.1 () (.speakFirst false 1) ((mem_support_pure_iff _ _).2 rfl)
     (some (some true)) ((mem_support_pure_iff _ _).2 rfl)
 
 theorem not_wellFormed_outputAtInitScheme : ¬ outputAtInitScheme.WellFormed := fun h =>
   not_outputsOnlyAtCompletion_outputAtInitParty h.1
+
+@[expose, instance_reducible] def emptyAttach : MonadAttach Option.{0} where
+  CanReturn _ _ := False
+  attach _ := none
+
+theorem emptyAttach_outputAtInit_vacuous :
+    letI := emptyAttach
+    ∀ r ∈ support (pure (.speakFirst false 1) : Option (Party.InitResult Bool ℕ)),
+      ∀ out ∈ support (pure (some (some true)) : Option (Option (Option Bool))),
+        out = none :=
+  fun _ hr => hr.elim
+
+theorem not_lawfulMonadAttach_emptyAttach : ¬ @LawfulMonadAttach Option.{0} _ emptyAttach :=
+  fun h => by
+    have h' : (none : Option Unit) = some () := h.map_attach (x := some ())
+    cases h'
+
+theorem not_outputsOnlyAtCompletion_emptyAttach (P : Party Option.{0} Unit ℕ (Option Bool)) :
+    ¬ @Party.OutputsOnlyAtCompletion _ _ _ _ _ emptyAttach P :=
+  fun h => not_lawfulMonadAttach_emptyAttach h.1
 
 /-! ## Oracle probes against `opImpl` -/
 

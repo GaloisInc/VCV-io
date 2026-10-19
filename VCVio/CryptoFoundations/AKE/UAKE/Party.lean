@@ -5,7 +5,6 @@ Authors: Ben Hamlin
 -/
 
 module
-public import VCVio.CryptoFoundations.SecExp.Measure
 public import VCVio.OracleComp.SimSemantics.Append
 public import VCVio.OracleComp.SimSemantics.SimulateQ
 
@@ -73,7 +72,7 @@ variable {m : Type → Type} {In W Out : Type}
 /-- True if a party is well-formed, i.e., if it outputs iff the state is
   the result of an execution of the step function that returns `done = true`
   or `.complete` (assuming the state is reachable). -/
-@[expose] def OutputsOnlyAtCompletion [MonadAttach m]
+@[expose] def OutputsOnlyAtCompletion [Monad m] [MonadAttach m]
     (P : Party m In W Out) : Prop :=
   let init_output := ∀ i r, r ∈ support (P.init i) →
     ∀ out ∈ support (P.output r.state), out = none;
@@ -82,7 +81,7 @@ variable {m : Type → Type} {In W Out : Type}
   let accept_output := ∀ st w st' w' (done : Bool),
     .acceptAndSend st' w' done ∈ support (P.step st w) →
       ∀ out ∈ support (P.output st'), out ≠ none ↔ done;
-  init_output ∧ complete_output ∧ accept_output
+  LawfulMonadAttach m ∧ init_output ∧ complete_output ∧ accept_output
 
 /-- Helper function for runHonest. Run the two parties against each other. The
   messages sent are returned in chronological order, along with P's and Q's
